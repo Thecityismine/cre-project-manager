@@ -1,18 +1,48 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { storage } from './supabaseConfig';
+import { supabase } from './supabaseConfig';
 
 // ============================================================================
-// NOTE: Storage is now handled by Supabase
-// See supabaseConfig.js for the storage adapter
-// Single user mode - no authentication required
+// STORAGE: Supabase Database adapter (cross-device)
+// Uses table: app_kv (key text primary key, value text, updated_at timestamptz)
+// Single user mode - no authentication required (for now)
 // ============================================================================
 
-// Set window.storage to use Supabase adapter
+const supabaseKV = {
+  async get(key) {
+    const { data, error } = await supabase
+      .from('app_kv')
+      .select('value')
+      .eq('key', key)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data?.value ?? null; // returns a string
+  },
+
+  async set(key, value) {
+    const { error } = await supabase
+      .from('app_kv')
+      .upsert({ key, value, updated_at: new Date().toISOString() });
+
+    if (error) throw error;
+    return true;
+  },
+
+  async remove(key) {
+    const { error } = await supabase.from('app_kv').delete().eq('key', key);
+    if (error) throw error;
+    return true;
+  },
+};
+
+// Keep your existing window.storage.get/set/remove calls working
 if (typeof window !== 'undefined') {
-  window.storage = storage;
+  window.storage = supabaseKV;
 }
 
+// ============================================================================
 // Lucide React icons - SVG components
+// ============================================================================
 const Plus = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>;
 const Check = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>;
 const X = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>;
@@ -31,18 +61,15 @@ const ChevronUp = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" heigh
 // ============================================================================
 // STORAGE CONFIGURATION
 // ============================================================================
-// Storage mode: controls where data is saved
-// - 'local': Browser localStorage (current - works cross-device in Claude)
-// - 'supabase': Supabase backend (for future migration)
-// - 'firebase': Firebase backend (alternative option)
 const STORAGE_CONFIG = {
-  mode: 'local', // Change this when migrating to cloud storage
-  version: '1.0.0', // Track schema version for migrations
+  mode: 'supabase',
+  version: '1.0.0',
 };
 
 // Note: Using window.storage directly throughout the app
-// This is the persistent storage API provided by the Claude interface
+// This now points to the Supabase adapter above
 // ============================================================================
+
 
 export default function CREProjectManager() {
   // ============================================================================
