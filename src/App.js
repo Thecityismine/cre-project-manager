@@ -67,6 +67,8 @@ export default function CREProjectManager() {
   const [projectTab, setProjectTab] = useState('active'); // 'active', 'completed'
   const [projectView, setProjectView] = useState('active'); // 'active', 'archived'
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [lastSaved, setLastSaved] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterTeam, setFilterTeam] = useState('all');
   const [filterSubdivision, setFilterSubdivision] = useState('all');
@@ -569,6 +571,27 @@ EOFSCRIPT`,
     } catch (error) {
       console.error('PDF generation error:', error);
       alert('Error generating PDF. Please try again.');
+    }
+  };
+
+  // Safe save helper with error handling and status indicator
+  const safeSave = async (key, data) => {
+    setSaving(true);
+    try {
+      const result = await window.storage.set(key, JSON.stringify(data));
+      if (result === false) {
+        console.error('❌ Save failed - Supabase returned false');
+        alert('⚠️ Save failed. Please check your connection and try again.');
+        return false;
+      }
+      setLastSaved(new Date());
+      return true;
+    } catch (error) {
+      console.error('❌ Save error:', error);
+      alert('⚠️ Save failed: ' + error.message);
+      return false;
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -1119,7 +1142,11 @@ EOFSCRIPT`,
     setView('projects');
     
     // Save to storage after UI update
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    const saved = await safeSave('projects', updatedProjects);
+    if (!saved) {
+      // If save failed, alert user
+      console.error('Project created but not saved to database');
+    }
   };
 
   // Toggle task completion in a project
