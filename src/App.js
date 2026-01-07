@@ -9430,5 +9430,3 @@ EOFSCRIPT`,
     </div>
   );
 }
-
-export default CREProjectManager;
