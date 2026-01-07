@@ -38,21 +38,41 @@ export const storage = {
   // Save all projects
   async setProjects(projects) {
     try {
-      // Delete all existing projects
-      await supabase
-        .from('projects')
-        .delete()
-        .eq('user_id', FIXED_USER_ID);
-
-      // Insert all projects
+      // Use upsert to safely update/insert projects
+      // This prevents data loss if insert fails
       const projectRecords = projects.map(project => ({
         user_id: FIXED_USER_ID,
+        project_id: project.id, // Use project.id as unique identifier
         project_data: project
       }));
 
+      // First, get all existing project IDs to know what to delete
+      const { data: existingProjects } = await supabase
+        .from('projects')
+        .select('project_id')
+        .eq('user_id', FIXED_USER_ID);
+
+      const existingIds = existingProjects ? existingProjects.map(p => p.project_id) : [];
+      const newIds = projects.map(p => p.id);
+      
+      // Find projects to delete (exist in DB but not in new list)
+      const idsToDelete = existingIds.filter(id => !newIds.includes(id));
+
+      // Delete removed projects
+      if (idsToDelete.length > 0) {
+        await supabase
+          .from('projects')
+          .delete()
+          .eq('user_id', FIXED_USER_ID)
+          .in('project_id', idsToDelete);
+      }
+
+      // Upsert all projects (insert new or update existing)
       const { error } = await supabase
         .from('projects')
-        .insert(projectRecords);
+        .upsert(projectRecords, {
+          onConflict: 'user_id,project_id'
+        });
 
       if (error) throw error;
       return true;
