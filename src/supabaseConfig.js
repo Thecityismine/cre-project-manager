@@ -1,15 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
-const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
+// Supabase configuration
+const supabaseUrl = 'https://pfezzjooguixoyawuzhd.supabase.co';
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBmZXp6am9vZ3VpeG95YXd1emhkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc2NDQ5MjMsImV4cCI6MjA4MzIyMDkyM30.g6uJdiwWYTqNrplu4_gqc4_cVCIN2KdvgT0zzBQYu_Y';
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  // This throws during build if you hard-require env vars.
-  // For CRA, it's safer to warn and let runtime handle it.
-  console.warn('Missing Supabase env vars: REACT_APP_SUPABASE_URL or REACT_APP_SUPABASE_ANON_KEY');
-}
-
-export const supabase = createClient(supabaseUrl || '', supabaseAnonKey || '');
-
-// If you are using Supabase Storage:
-export const storage = supabase.storage;
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
