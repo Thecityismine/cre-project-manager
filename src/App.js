@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { storage } from './supabaseConfig';
 
@@ -5966,6 +5965,82 @@ EOFSCRIPT`,
                   )}
                 </div>
 
+                {/* Budget Summary Card */}
+                <div className="bg-slate-900 rounded-lg p-4 sm:p-6 border border-slate-800">
+                  <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                    📊 Budget Summary
+                  </h3>
+                  
+                  <div className="mb-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium">{selectedProject.name}</span>
+                      {(() => {
+                        const baselineTotal = getBaselineBudget(selectedProject);
+                        const targetTotal = getTargetBudget(selectedProject);
+                        const changeOrders = getTotalChangeOrders(selectedProject);
+                        const actualTotal = targetTotal + changeOrders;
+                        // Variance = Baseline - Actual (positive = under budget)
+                        const variance = baselineTotal - actualTotal;
+                        const isOverBudget = variance < 0;
+                        
+                        return (
+                          <span className={`text-sm font-semibold ${
+                            isOverBudget ? 'text-red-400' : 'text-green-400'
+                          }`}>
+                            {isOverBudget ? 'Over' : 'Under'} Budget
+                          </span>
+                        );
+                      })()}
+                    </div>
+                    
+                    {(() => {
+                      const baselineTotal = getBaselineBudget(selectedProject);
+                      const targetTotal = getTargetBudget(selectedProject);
+                      const changeOrders = getTotalChangeOrders(selectedProject);
+                      const actualTotal = targetTotal + changeOrders;
+                      
+                      // Calculate percentages
+                      const maxBudget = Math.max(baselineTotal, actualTotal);
+                      const baselinePercent = maxBudget > 0 ? (baselineTotal / maxBudget) * 100 : 0;
+                      const actualPercent = maxBudget > 0 ? (actualTotal / maxBudget) * 100 : 0;
+                      
+                      return (
+                        <div className="relative h-8 bg-slate-800 rounded-lg overflow-hidden">
+                          {/* Baseline budget bar (blue) */}
+                          <div
+                            className="absolute top-0 left-0 h-full bg-blue-600 transition-all"
+                            style={{ width: `${baselinePercent}%` }}
+                          ></div>
+                          
+                          {/* Actual budget bar (green - overlays baseline) */}
+                          <div
+                            className="absolute top-0 left-0 h-full bg-green-600 transition-all"
+                            style={{ width: `${actualPercent}%` }}
+                          ></div>
+                          
+                          {/* Budget amount label */}
+                          <div className="absolute inset-0 flex items-center justify-end px-3">
+                            <span className="text-sm font-bold text-white drop-shadow">
+                              {formatBudget(actualTotal.toString())}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                    
+                    <div className="flex items-center gap-4 mt-2 text-xs">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-3 h-3 bg-blue-600 rounded"></div>
+                        <span className="text-slate-400">Baseline</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-3 h-3 bg-green-600 rounded"></div>
+                        <span className="text-slate-400">Actual</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Key Milestones Card - Visual Baseline vs Target Comparison */}
                 {(selectedProject.schedule || []).length > 0 && (
                   <div className="bg-slate-900 rounded-lg p-4 sm:p-6 border border-slate-800">
@@ -5974,7 +6049,18 @@ EOFSCRIPT`,
                     </h3>
                     <div className="space-y-4">
                       {sortScheduleItems(selectedProject.schedule || [])
-                        .filter(item => item.targetStartDate || item.approvedStartDate)
+                        .filter(item => {
+                          // Only show the 6 main schedule items
+                          const mainItems = [
+                            'Funding Approval',
+                            'Design Start',
+                            'Construction Start',
+                            'Substantial Completion',
+                            'Handover',
+                            'Go Live'
+                          ];
+                          return mainItems.includes(item.name) && (item.targetStartDate || item.approvedStartDate);
+                        })
                         .map(item => {
                           const hasApproved = item.approvedStartDate && item.approvedEndDate;
                           const hasTarget = item.targetStartDate && item.targetEndDate;
