@@ -1,48 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { supabase } from './supabaseConfig';
+import { storage } from './supabaseConfig';
 
 // ============================================================================
-// STORAGE: Supabase Database adapter (cross-device)
-// Uses table: app_kv (key text primary key, value text, updated_at timestamptz)
-// Single user mode - no authentication required (for now)
+// NOTE: Storage is now handled by Supabase
+// See supabaseConfig.js for the storage adapter
+// Single user mode - no authentication required
 // ============================================================================
 
-const supabaseKV = {
-  async get(key) {
-    const { data, error } = await supabase
-      .from('app_kv')
-      .select('value')
-      .eq('key', key)
-      .maybeSingle();
-
-    if (error) throw error;
-    return data?.value ?? null; // returns a string
-  },
-
-  async set(key, value) {
-    const { error } = await supabase
-      .from('app_kv')
-      .upsert({ key, value, updated_at: new Date().toISOString() });
-
-    if (error) throw error;
-    return true;
-  },
-
-  async remove(key) {
-    const { error } = await supabase.from('app_kv').delete().eq('key', key);
-    if (error) throw error;
-    return true;
-  },
-};
-
-// Keep your existing window.storage.get/set/remove calls working
+// Set window.storage to use Supabase adapter
 if (typeof window !== 'undefined') {
-  window.storage = supabaseKV;
+  window.storage = storage;
 }
 
-// ============================================================================
 // Lucide React icons - SVG components
-// ============================================================================
 const Plus = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>;
 const Check = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>;
 const X = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>;
@@ -61,15 +31,18 @@ const ChevronUp = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" heigh
 // ============================================================================
 // STORAGE CONFIGURATION
 // ============================================================================
+// Storage mode: controls where data is saved
+// - 'local': Browser localStorage (current - works cross-device in Claude)
+// - 'supabase': Supabase backend (for future migration)
+// - 'firebase': Firebase backend (alternative option)
 const STORAGE_CONFIG = {
-  mode: 'supabase',
-  version: '1.0.0',
+  mode: 'local', // Change this when migrating to cloud storage
+  version: '1.0.0', // Track schema version for migrations
 };
 
 // Note: Using window.storage directly throughout the app
-// This now points to the Supabase adapter above
+// This is the persistent storage API provided by the Claude interface
 // ============================================================================
-
 
 export default function CREProjectManager() {
   // ============================================================================
@@ -199,7 +172,7 @@ export default function CREProjectManager() {
   const [selectedPerformanceContact, setSelectedPerformanceContact] = useState(null);
 
   // Consistent milestone ordering - used across all views
-  const MILESTONE_ORDER = ['Funding Approval', 'Design Start', 'Construction Start', 'Substantial Completion', 'Handover', 'Go Live'];
+  const MILESTONE_ORDER = ['Funding Approval', 'Design Start', 'Construction Start', 'Substantial Completion', 'Handover', 'Go Live', 'Warranty Start'];
   
   const sortScheduleItems = (items) => {
     return [...items].sort((a, b) => {
@@ -1076,21 +1049,22 @@ EOFSCRIPT`,
       { id: `${Date.now()}-4`, name: 'Substantial Completion', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
       { id: `${Date.now()}-5`, name: 'Handover', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
       { id: `${Date.now()}-6`, name: 'Go Live', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
+      { id: `${Date.now()}-7`, name: 'Warranty Start', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
       // Post-Handover items (target dates only)
-      { id: `${Date.now()}-7`, name: 'Site Survey', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
-      { id: `${Date.now()}-8`, name: 'Design Development', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
-      { id: `${Date.now()}-9`, name: 'LOB Awareness', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
-      { id: `${Date.now()}-10`, name: 'Issue for Permit', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
-      { id: `${Date.now()}-11`, name: 'Permit Process', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
-      { id: `${Date.now()}-12`, name: 'MER Freeze #1', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
-      { id: `${Date.now()}-13`, name: 'MER Freeze #2', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
-      { id: `${Date.now()}-14`, name: 'MER Handover to GTI', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
-      { id: `${Date.now()}-15`, name: 'MER Shell Ready', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
-      { id: `${Date.now()}-16`, name: 'MER Room Ready', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
-      { id: `${Date.now()}-17`, name: 'MER Pro. Ready', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
-      { id: `${Date.now()}-18`, name: 'Furniture Install', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
-      { id: `${Date.now()}-19`, name: 'Desktop Install', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
-      { id: `${Date.now()}-20`, name: 'Equipment Delivery', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() }
+      { id: `${Date.now()}-8`, name: 'Site Survey', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
+      { id: `${Date.now()}-9`, name: 'Design Development', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
+      { id: `${Date.now()}-10`, name: 'LOB Awareness', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
+      { id: `${Date.now()}-11`, name: 'Issue for Permit', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
+      { id: `${Date.now()}-12`, name: 'Permit Process', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
+      { id: `${Date.now()}-13`, name: 'MER Freeze #1', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
+      { id: `${Date.now()}-14`, name: 'MER Freeze #2', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
+      { id: `${Date.now()}-15`, name: 'MER Handover to GTI', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
+      { id: `${Date.now()}-16`, name: 'MER Shell Ready', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
+      { id: `${Date.now()}-17`, name: 'MER Room Ready', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
+      { id: `${Date.now()}-18`, name: 'MER Pro. Ready', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
+      { id: `${Date.now()}-19`, name: 'Furniture Install', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
+      { id: `${Date.now()}-20`, name: 'Desktop Install', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
+      { id: `${Date.now()}-21`, name: 'Equipment Delivery', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() }
     ];
 
     // Default bid schedule phases
@@ -5435,38 +5409,40 @@ EOFSCRIPT`,
               </button>
             </div>
 
-            {/* Filters */}
-            <div className="flex flex-col sm:flex-row gap-3 mb-4">
-              <div className="flex-1 sm:min-w-[300px] relative flex items-center">
-                <Search className="w-4 h-4 absolute left-3 text-slate-400 pointer-events-none" />
-                <input
-                  type="text"
-                  placeholder="Search tasks..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 bg-slate-900 rounded border border-slate-800 focus:border-blue-500 focus:outline-none"
-                />
+            {/* Search and Filters - Improved Layout */}
+            <div className="bg-slate-900 rounded-lg p-3 sm:p-4 border border-slate-800 mb-4">
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="flex-1 relative">
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search tasks..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 bg-slate-800 rounded border border-slate-700 focus:border-blue-500 focus:outline-none"
+                  />
+                </div>
+                <select
+                  value={filterTeam}
+                  onChange={(e) => setFilterTeam(e.target.value)}
+                  className="w-full sm:w-auto px-4 py-2 bg-slate-800 rounded border border-slate-700 focus:border-blue-500 focus:outline-none sm:min-w-[150px]"
+                >
+                  <option value="all">All Teams</option>
+                  {allTeams.map(team => (
+                    <option key={team} value={team}>{team}</option>
+                  ))}
+                </select>
+                <select
+                  value={filterSubdivision}
+                  onChange={(e) => setFilterSubdivision(e.target.value)}
+                  className="w-full sm:w-auto px-4 py-2 bg-slate-800 rounded border border-slate-700 focus:border-blue-500 focus:outline-none sm:min-w-[180px]"
+                >
+                  <option value="all">All Subdivisions</option>
+                  {allSubdivisions.map(sub => (
+                    <option key={sub} value={sub}>{sub}</option>
+                  ))}
+                </select>
               </div>
-              <select
-                value={filterTeam}
-                onChange={(e) => setFilterTeam(e.target.value)}
-                className="w-full sm:w-auto px-4 py-2 bg-slate-900 rounded border border-slate-800 focus:border-blue-500 focus:outline-none sm:min-w-[150px]"
-              >
-                <option value="all">All Teams</option>
-                {allTeams.map(team => (
-                  <option key={team} value={team}>{team}</option>
-                ))}
-              </select>
-              <select
-                value={filterSubdivision}
-                onChange={(e) => setFilterSubdivision(e.target.value)}
-                className="w-full sm:w-auto px-4 py-2 bg-slate-900 rounded border border-slate-800 focus:border-blue-500 focus:outline-none sm:min-w-[180px]"
-              >
-                <option value="all">All Subdivisions</option>
-                {allSubdivisions.map(sub => (
-                  <option key={sub} value={sub}>{sub}</option>
-                ))}
-              </select>
             </div>
 
             {/* Tasks List */}
@@ -5864,14 +5840,14 @@ EOFSCRIPT`,
             {/* Filters - Only for Active and Completed tabs */}
             {(projectTab === 'active' || projectTab === 'completed') && (
               <div className="flex flex-col sm:flex-row gap-3 mb-4">
-                <div className="flex-1 sm:min-w-[300px] relative flex items-center">
-                  <Search className="w-4 h-4 absolute left-3 text-slate-400 pointer-events-none" />
+                <div className="flex-1 sm:min-w-[300px] relative">
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     type="text"
                     placeholder="Search tasks..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 bg-slate-900 rounded border border-slate-800 focus:border-blue-500 focus:outline-none"
+                    className="w-full pl-10 pr-4 py-2 bg-slate-900 rounded border border-slate-800 focus:border-blue-500 focus:outline-none text-base"
                   />
                 </div>
                 <select
@@ -5989,84 +5965,6 @@ EOFSCRIPT`,
                   )}
                 </div>
 
-                {/* Budget Summary Card */}
-                {(selectedProject.budget || []).length > 0 && (
-                  <div className="bg-slate-900 rounded-lg p-4 sm:p-6 border border-slate-800">
-                    <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-                      📊 Budget Summary
-                    </h3>
-                    
-                    <div className="mb-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-sm font-medium">{selectedProject.name}</span>
-                        {(() => {
-                          const baselineTotal = getBaselineBudget(selectedProject);
-                          const targetTotal = getTargetBudget(selectedProject);
-                          const changeOrders = getTotalChangeOrders(selectedProject);
-                          const actualTotal = targetTotal + changeOrders;
-                          const variance = baselineTotal - actualTotal;
-                          const isOverBudget = variance < 0;
-                          
-                          return (
-                            <span className={`text-sm font-semibold ${
-                              isOverBudget ? 'text-red-400' : 'text-green-400'
-                            }`}>
-                              {isOverBudget ? 'Over' : 'Under'} Budget
-                            </span>
-                          );
-                        })()}
-                      </div>
-                      
-                      {(() => {
-                        const baselineTotal = getBaselineBudget(selectedProject);
-                        const targetTotal = getTargetBudget(selectedProject);
-                        const changeOrders = getTotalChangeOrders(selectedProject);
-                        const actualTotal = targetTotal + changeOrders;
-                        
-                        // Calculate percentages - baseline is 100% reference
-                        const targetPercent = baselineTotal > 0 ? (actualTotal / baselineTotal) * 100 : 0;
-                        
-                        return (
-                          <div className="relative h-8 bg-slate-800 rounded-lg overflow-hidden">
-                            {/* Baseline budget bar (blue) - always 100% */}
-                            <div
-                              className="absolute top-0 left-0 h-full bg-blue-600/30 transition-all"
-                              style={{ width: '100%' }}
-                            ></div>
-                            
-                            {/* Target budget bar (green - fills as percentage of baseline) */}
-                            <div
-                              className="absolute top-0 left-0 h-full bg-green-600 transition-all"
-                              style={{ width: `${Math.min(targetPercent, 100)}%` }}
-                            ></div>
-                            
-                            {/* Budget amount labels */}
-                            <div className="absolute inset-0 flex items-center justify-between px-3">
-                              <span className="text-xs font-bold text-white drop-shadow">
-                                {formatBudget(actualTotal.toString())}
-                              </span>
-                              <span className="text-xs font-bold text-white drop-shadow">
-                                {formatBudget(baselineTotal.toString())}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })()}
-                      
-                      <div className="flex items-center gap-4 mt-2 text-xs">
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-3 h-3 bg-blue-600/30 rounded"></div>
-                          <span className="text-slate-400">Baseline</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-3 h-3 bg-green-600 rounded"></div>
-                          <span className="text-slate-400">Target</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
                 {/* Key Milestones Card - Visual Baseline vs Target Comparison */}
                 {(selectedProject.schedule || []).length > 0 && (
                   <div className="bg-slate-900 rounded-lg p-4 sm:p-6 border border-slate-800">
@@ -6075,14 +5973,7 @@ EOFSCRIPT`,
                     </h3>
                     <div className="space-y-4">
                       {sortScheduleItems(selectedProject.schedule || [])
-                        .filter(item => {
-                          // Filter out Site Survey and Design Development from Key Milestones display
-                          if (item.name === 'Site Survey' || item.name === 'Design Development') {
-                            return false;
-                          }
-                          // Only show items that have BOTH target AND approved dates (the 6 main milestones)
-                          return (item.targetStartDate && item.targetEndDate) && (item.approvedStartDate && item.approvedEndDate);
-                        })
+                        .filter(item => item.targetStartDate || item.approvedStartDate)
                         .map(item => {
                           const hasApproved = item.approvedStartDate && item.approvedEndDate;
                           const hasTarget = item.targetStartDate && item.targetEndDate;
@@ -7033,147 +6924,6 @@ EOFSCRIPT`,
                         ))
                     )}
                   </div>
-
-                  {/* Warranty Period - Special Section */}
-                  <div className="mt-6 bg-gradient-to-br from-purple-900/40 to-indigo-900/40 rounded-lg p-4 sm:p-6 border-2 border-purple-500/50 shadow-lg">
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className="text-3xl">🛡️</div>
-                      <div>
-                        <h3 className="text-lg sm:text-xl font-bold text-purple-200">Warranty Period</h3>
-                        <p className="text-xs sm:text-sm text-purple-300/70">Post-completion warranty coverage</p>
-                      </div>
-                    </div>
-
-                    {(() => {
-                      const warrantyItem = (selectedProject.schedule || []).find(item => item.name === 'Warranty Period');
-                      
-                      if (!warrantyItem || !warrantyItem.startDate) {
-                        return (
-                          <div className="bg-slate-900/50 rounded-lg p-4 border border-purple-500/30">
-                            <p className="text-slate-300 mb-3 text-sm">Set warranty period dates:</p>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                              <div>
-                                <label className="block text-xs text-purple-300 mb-1">Start Date *</label>
-                                <input
-                                  type="date"
-                                  value={newScheduleItem.name === 'Warranty Period' ? newScheduleItem.startDate : ''}
-                                  onChange={(e) => setNewScheduleItem({ name: 'Warranty Period', startDate: e.target.value, endDate: newScheduleItem.endDate || '' })}
-                                  className="w-full px-4 py-2 bg-slate-800 rounded border border-purple-500/30 focus:border-purple-500 focus:outline-none text-sm"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-xs text-purple-300 mb-1">End Date *</label>
-                                <input
-                                  type="date"
-                                  value={newScheduleItem.name === 'Warranty Period' ? newScheduleItem.endDate : ''}
-                                  onChange={(e) => setNewScheduleItem({ name: 'Warranty Period', startDate: newScheduleItem.startDate || '', endDate: e.target.value })}
-                                  className="w-full px-4 py-2 bg-slate-800 rounded border border-purple-500/30 focus:border-purple-500 focus:outline-none text-sm"
-                                />
-                              </div>
-                            </div>
-                            <button
-                              onClick={() => {
-                                if (newScheduleItem.startDate && newScheduleItem.endDate) {
-                                  addScheduleItem(selectedProject.id);
-                                }
-                              }}
-                              disabled={!newScheduleItem.startDate || !newScheduleItem.endDate || newScheduleItem.name !== 'Warranty Period'}
-                              className="mt-3 px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-700 disabled:cursor-not-allowed rounded flex items-center gap-2 text-sm font-medium"
-                            >
-                              <Plus className="w-4 h-4" />
-                              Set Warranty Period
-                            </button>
-                          </div>
-                        );
-                      }
-
-                      // Display existing warranty period
-                      return (
-                        <div className="bg-slate-900/50 rounded-lg p-4 border border-purple-500/30">
-                          {editingScheduleItem?.id === warrantyItem.id ? (
-                            <div>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-                                <div>
-                                  <label className="block text-xs text-purple-300 mb-1">Start Date *</label>
-                                  <input
-                                    type="date"
-                                    value={editingScheduleItem.startDate}
-                                    onChange={(e) => setEditingScheduleItem({ ...editingScheduleItem, startDate: e.target.value })}
-                                    className="w-full px-4 py-2 bg-slate-800 rounded border border-purple-500/30 focus:border-purple-500 focus:outline-none text-sm"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="block text-xs text-purple-300 mb-1">End Date *</label>
-                                  <input
-                                    type="date"
-                                    value={editingScheduleItem.endDate}
-                                    onChange={(e) => setEditingScheduleItem({ ...editingScheduleItem, endDate: e.target.value })}
-                                    className="w-full px-4 py-2 bg-slate-800 rounded border border-purple-500/30 focus:border-purple-500 focus:outline-none text-sm"
-                                  />
-                                </div>
-                              </div>
-                              <div className="flex gap-2">
-                                <button
-                                  onClick={() => updateScheduleItem(selectedProject.id)}
-                                  className="px-4 py-2 bg-green-600 hover:bg-green-700 rounded flex items-center gap-2 text-sm"
-                                >
-                                  <Check className="w-4 h-4" />
-                                  Save
-                                </button>
-                                <button
-                                  onClick={() => setEditingScheduleItem(null)}
-                                  className="px-4 py-2 bg-slate-600 hover:bg-slate-500 rounded flex items-center gap-2 text-sm"
-                                >
-                                  <X className="w-4 h-4" />
-                                  Cancel
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="flex items-center justify-between">
-                              <div className="flex-1">
-                                <div className="grid grid-cols-2 gap-4 text-sm">
-                                  <div>
-                                    <div className="text-xs text-purple-300/70 mb-1">Start Date</div>
-                                    <div className="font-semibold text-purple-100">{formatDateDisplay(warrantyItem.startDate)}</div>
-                                  </div>
-                                  <div>
-                                    <div className="text-xs text-purple-300/70 mb-1">End Date</div>
-                                    <div className="font-semibold text-purple-100">{formatDateDisplay(warrantyItem.endDate)}</div>
-                                  </div>
-                                </div>
-                                {warrantyItem.startDate && warrantyItem.endDate && (
-                                  <div className="mt-2 text-xs text-purple-300/70">
-                                    Duration: {(() => {
-                                      const start = new Date(warrantyItem.startDate);
-                                      const end = new Date(warrantyItem.endDate);
-                                      const days = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
-                                      const months = Math.floor(days / 30);
-                                      return months > 0 ? `${months} month${months !== 1 ? 's' : ''}` : `${days} days`;
-                                    })()}
-                                  </div>
-                                )}
-                              </div>
-                              <div className="flex gap-2 ml-4">
-                                <button
-                                  onClick={() => setEditingScheduleItem({ ...warrantyItem })}
-                                  className="text-purple-300 hover:text-purple-200"
-                                >
-                                  <Edit2 className="w-4 h-4" />
-                                </button>
-                                <button
-                                  onClick={() => confirmDelete('schedule', warrantyItem.id, selectedProject.id, 'Warranty Period')}
-                                  className="text-red-400 hover:text-red-300"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })()}
-                  </div>
                 </div>
               )}
 
@@ -7473,7 +7223,6 @@ EOFSCRIPT`,
                   </div>
 
                   {/* Budget Items List */}
-
                   <div className="space-y-2">
                     {(selectedProject.budget || []).length === 0 ? (
                       <div className="bg-slate-900 rounded-lg p-8 text-center text-slate-400">
@@ -7586,7 +7335,7 @@ EOFSCRIPT`,
                           <div className="bg-blue-900/30 rounded-lg p-3 border-2 border-blue-700">
                             <div className="flex items-center justify-between">
                               <h3 className="text-base sm:text-lg font-bold">Baseline Budget</h3>
-                              <div className="text-base sm:text-lg font-bold text-blue-400">
+                              <div className="text-xl sm:text-2xl font-bold text-blue-400">
                                 {formatBudget(getBaselineBudget(selectedProject).toString())}
                               </div>
                             </div>
@@ -7596,7 +7345,7 @@ EOFSCRIPT`,
                           <div className="bg-green-900/30 rounded-lg p-3 border-2 border-green-700">
                             <div className="flex items-center justify-between">
                               <h3 className="text-base sm:text-lg font-bold">Target Budget</h3>
-                              <div className="text-base sm:text-lg font-bold text-green-400">
+                              <div className="text-xl sm:text-2xl font-bold text-green-400">
                                 {formatBudget(getTargetBudget(selectedProject).toString())}
                               </div>
                             </div>
@@ -7607,7 +7356,7 @@ EOFSCRIPT`,
                             <div className="bg-orange-900/30 rounded-lg p-3 border-2 border-orange-700">
                               <div className="flex items-center justify-between">
                                 <h3 className="text-base sm:text-lg font-bold">Change Orders</h3>
-                                <div className="text-base sm:text-lg font-bold text-orange-400">
+                                <div className="text-xl sm:text-2xl font-bold text-orange-400">
                                   {formatBudget(getTotalChangeOrders(selectedProject).toString())}
                                 </div>
                               </div>
@@ -7619,8 +7368,10 @@ EOFSCRIPT`,
                             const baselineTotal = getBaselineBudget(selectedProject);
                             const targetTotal = getTargetBudget(selectedProject);
                             const changeOrders = getTotalChangeOrders(selectedProject);
+                            // Variance = Baseline - (Target + Change Orders)
+                            // Positive = Under Budget (savings), Negative = Over Budget
                             const variance = baselineTotal - (targetTotal + changeOrders);
-                            const isOverBudget = variance < 0; // Negative variance = over budget
+                            const isOverBudget = variance < 0;
                             
                             return (
                               <div className={`rounded-lg p-3 border-2 ${
@@ -7635,7 +7386,7 @@ EOFSCRIPT`,
                                       Baseline vs (Target + Change Orders)
                                     </p>
                                   </div>
-                                  <div className={`text-base sm:text-lg font-bold ${
+                                  <div className={`text-xl sm:text-2xl font-bold ${
                                     isOverBudget ? 'text-red-400' : 'text-emerald-400'
                                   }`}>
                                     {isOverBudget ? '-' : '+'}{formatBudget(Math.abs(variance).toString())}
@@ -7660,6 +7411,7 @@ EOFSCRIPT`,
                                 const targetTotal = getTargetBudget(selectedProject);
                                 const changeOrders = getTotalChangeOrders(selectedProject);
                                 const actualTotal = targetTotal + changeOrders;
+                                // Variance = Baseline - Actual (positive = under budget)
                                 const variance = baselineTotal - actualTotal;
                                 const isOverBudget = variance < 0;
                                 
@@ -7679,30 +7431,29 @@ EOFSCRIPT`,
                               const changeOrders = getTotalChangeOrders(selectedProject);
                               const actualTotal = targetTotal + changeOrders;
                               
-                              // Calculate percentages - baseline is 100% reference
-                              const targetPercent = baselineTotal > 0 ? (actualTotal / baselineTotal) * 100 : 0;
+                              // Calculate percentages
+                              const maxBudget = Math.max(baselineTotal, actualTotal);
+                              const baselinePercent = maxBudget > 0 ? (baselineTotal / maxBudget) * 100 : 0;
+                              const actualPercent = maxBudget > 0 ? (actualTotal / maxBudget) * 100 : 0;
                               
                               return (
                                 <div className="relative h-8 bg-slate-800 rounded-lg overflow-hidden">
-                                  {/* Baseline budget bar (blue) - always 100% */}
+                                  {/* Baseline budget bar (blue) */}
                                   <div
-                                    className="absolute top-0 left-0 h-full bg-blue-600/30 transition-all"
-                                    style={{ width: '100%' }}
+                                    className="absolute top-0 left-0 h-full bg-blue-600 transition-all"
+                                    style={{ width: `${baselinePercent}%` }}
                                   ></div>
                                   
-                                  {/* Target budget bar (green - fills as percentage of baseline) */}
+                                  {/* Actual budget bar (green - overlays baseline) */}
                                   <div
                                     className="absolute top-0 left-0 h-full bg-green-600 transition-all"
-                                    style={{ width: `${Math.min(targetPercent, 100)}%` }}
+                                    style={{ width: `${actualPercent}%` }}
                                   ></div>
                                   
-                                  {/* Budget amount labels */}
-                                  <div className="absolute inset-0 flex items-center justify-between px-3">
-                                    <span className="text-xs font-bold text-white drop-shadow">
+                                  {/* Budget amount label */}
+                                  <div className="absolute inset-0 flex items-center justify-end px-3">
+                                    <span className="text-sm font-bold text-white drop-shadow">
                                       {formatBudget(actualTotal.toString())}
-                                    </span>
-                                    <span className="text-xs font-bold text-white drop-shadow">
-                                      {formatBudget(baselineTotal.toString())}
                                     </span>
                                   </div>
                                 </div>
@@ -7711,12 +7462,12 @@ EOFSCRIPT`,
                             
                             <div className="flex items-center gap-4 mt-2 text-xs">
                               <div className="flex items-center gap-1.5">
-                                <div className="w-3 h-3 bg-blue-600/30 rounded"></div>
+                                <div className="w-3 h-3 bg-blue-600 rounded"></div>
                                 <span className="text-slate-400">Baseline</span>
                               </div>
                               <div className="flex items-center gap-1.5">
                                 <div className="w-3 h-3 bg-green-600 rounded"></div>
-                                <span className="text-slate-400">Target</span>
+                                <span className="text-slate-400">Actual</span>
                               </div>
                             </div>
                           </div>
@@ -7902,7 +7653,7 @@ EOFSCRIPT`,
                         <div className="bg-gradient-to-r from-green-900/30 to-emerald-900/30 rounded-lg p-3 border-2 border-green-800">
                           <div className="flex items-center justify-between">
                             <h3 className="text-base sm:text-lg font-bold">Total Cost Savings</h3>
-                            <p className="text-base sm:text-lg font-bold text-green-400">
+                            <p className="text-xl sm:text-2xl font-bold text-green-400">
                               ${getTotalCostSavings(selectedProject).toLocaleString()}
                             </p>
                           </div>
@@ -8482,7 +8233,7 @@ EOFSCRIPT`,
                         <div className="bg-red-900/30 rounded-lg p-3 border-2 border-red-700 mt-4">
                           <div className="flex items-center justify-between">
                             <h3 className="text-base sm:text-lg font-bold">Total Change Orders</h3>
-                            <div className="text-base sm:text-lg font-bold text-red-400">
+                            <div className="text-xl sm:text-2xl font-bold text-red-400">
                               {formatBudget(getTotalChangeOrders(selectedProject).toString())}
                             </div>
                           </div>
@@ -9139,6 +8890,127 @@ EOFSCRIPT`,
                 </div>
               )}
 
+              {/* Warranty Period Card - At bottom of Schedule */}
+              {projectTab === 'schedule' && (
+                <div className="mt-6 bg-slate-900 rounded-lg p-4 border border-slate-800">
+                  <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
+                    🛡️ Warranty Period
+                  </h3>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm text-slate-400 mb-2">
+                        Warranty Start Date
+                      </label>
+                      <input
+                        type="date"
+                        value={selectedProject.warrantyStartDate || ''}
+                        onChange={async (e) => {
+                          const updatedProjects = projects.map(p =>
+                            p.id === selectedProject.id
+                              ? { ...p, warrantyStartDate: e.target.value }
+                              : p
+                          );
+                          setProjects(updatedProjects);
+                          setSelectedProject({ ...selectedProject, warrantyStartDate: e.target.value });
+                          await window.storage.set('projects', JSON.stringify(updatedProjects));
+                        }}
+                        className="w-full px-4 py-2 bg-slate-800 rounded border border-slate-700 focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm text-slate-400 mb-2">
+                        Warranty End Date
+                      </label>
+                      <input
+                        type="date"
+                        value={selectedProject.warrantyEndDate || ''}
+                        onChange={async (e) => {
+                          const updatedProjects = projects.map(p =>
+                            p.id === selectedProject.id
+                              ? { ...p, warrantyEndDate: e.target.value }
+                              : p
+                          );
+                          setProjects(updatedProjects);
+                          setSelectedProject({ ...selectedProject, warrantyEndDate: e.target.value });
+                          await window.storage.set('projects', JSON.stringify(updatedProjects));
+                        }}
+                        className="w-full px-4 py-2 bg-slate-800 rounded border border-slate-700 focus:border-blue-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {selectedProject.warrantyStartDate && selectedProject.warrantyEndDate && (() => {
+                    const start = new Date(selectedProject.warrantyStartDate);
+                    const end = new Date(selectedProject.warrantyEndDate);
+                    const today = new Date();
+                    const daysRemaining = Math.ceil((end - today) / (1000 * 60 * 60 * 24));
+                    const totalDays = Math.ceil((end - start) / (1000 * 60 * 60 * 24));
+                    const daysElapsed = totalDays - daysRemaining;
+                    const percentComplete = Math.min(100, Math.max(0, (daysElapsed / totalDays) * 100));
+
+                    return (
+                      <div className="mt-4">
+                        {/* Warranty Status */}
+                        <div className="flex items-center justify-between mb-2 text-sm">
+                          <span className="text-slate-400">
+                            {daysRemaining > 0 
+                              ? `${daysRemaining} days remaining` 
+                              : daysRemaining === 0
+                              ? 'Warranty ends today'
+                              : 'Warranty expired'}
+                          </span>
+                          <span className="text-slate-400">
+                            {start.toLocaleDateString()} - {end.toLocaleDateString()}
+                          </span>
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div className="relative h-3 bg-slate-800 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full transition-all ${
+                              daysRemaining < 0 
+                                ? 'bg-red-600' 
+                                : daysRemaining < 30 
+                                ? 'bg-yellow-600' 
+                                : 'bg-green-600'
+                            }`}
+                            style={{ width: `${percentComplete}%` }}
+                          ></div>
+                        </div>
+
+                        {/* Warning if expiring soon */}
+                        {daysRemaining > 0 && daysRemaining < 30 && (
+                          <div className="mt-3 p-3 bg-yellow-900/30 border border-yellow-700 rounded-lg flex items-start gap-2">
+                            <span className="text-yellow-400 text-xl">⚠️</span>
+                            <div>
+                              <p className="text-sm font-semibold text-yellow-400">Warranty Expiring Soon</p>
+                              <p className="text-xs text-slate-400 mt-1">
+                                Only {daysRemaining} days remaining. Review any outstanding warranty claims.
+                              </p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Expired warning */}
+                        {daysRemaining < 0 && (
+                          <div className="mt-3 p-3 bg-red-900/30 border border-red-700 rounded-lg flex items-start gap-2">
+                            <span className="text-red-400 text-xl">❌</span>
+                            <div>
+                              <p className="text-sm font-semibold text-red-400">Warranty Expired</p>
+                              <p className="text-xs text-slate-400 mt-1">
+                                Warranty period ended {Math.abs(daysRemaining)} days ago.
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
               {/* Floor Plans Tab */}
               {projectTab === 'floorplans' && (
                 <div>
@@ -9559,3 +9431,4 @@ EOFSCRIPT`,
   );
 }
 
+export default CREProjectManager;
