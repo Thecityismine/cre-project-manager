@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { storage } from './supabaseConfig';
 
@@ -5414,13 +5413,12 @@ EOFSCRIPT`,
             <div className="bg-slate-900 rounded-lg p-3 sm:p-4 border border-slate-800 mb-4">
               <div className="flex flex-col sm:flex-row gap-3">
                 <div className="flex-1 relative">
-                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     type="text"
                     placeholder="Search tasks..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 bg-slate-800 rounded border border-slate-700 focus:border-blue-500 focus:outline-none"
+                    className="w-full px-4 py-2 bg-slate-800 rounded border border-slate-700 focus:border-blue-500 focus:outline-none"
                   />
                 </div>
                 <select
@@ -5842,13 +5840,12 @@ EOFSCRIPT`,
             {(projectTab === 'active' || projectTab === 'completed') && (
               <div className="flex flex-col sm:flex-row gap-3 mb-4">
                 <div className="flex-1 sm:min-w-[300px] relative">
-                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     type="text"
                     placeholder="Search tasks..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 bg-slate-900 rounded border border-slate-800 focus:border-blue-500 focus:outline-none text-base"
+                    className="w-full px-4 py-2 bg-slate-900 rounded border border-slate-800 focus:border-blue-500 focus:outline-none text-base"
                   />
                 </div>
                 <select
