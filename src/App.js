@@ -1038,7 +1038,7 @@ EOFSCRIPT`,
   };
 
   // Create new project
-  const createProject = async () => {
+  const createProject-FIXED.txt = async () => {
     if (!newProjectForm.name.trim()) return;
 
     // Default schedule items
