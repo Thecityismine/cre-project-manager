@@ -1,6 +1,6 @@
 // ============================================================================
 // SUPABASE CONFIGURATION - Single User Mode (No Auth)
-// FIXED VERSION - Matches database schema constraints
+// SAFEGUARDED VERSION - Prevents accidental data deletion
 // ============================================================================
 import { createClient } from '@supabase/supabase-js';
 
@@ -11,14 +11,20 @@ const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   realtime: {
     enabled: false
+  },
+  auth: {
+    persistSession: false
   }
 });
 
 // Fixed user ID for single-user mode (no authentication required)
 const FIXED_USER_ID = '00000000-0000-0000-0000-000000000001';
 
+// Track if we've ever loaded from Supabase (prevents premature saves)
+let hasLoadedFromSupabase = false;
+
 // ============================================================================
-// STORAGE ADAPTER - Supabase Version (Single User) - FULLY FIXED
+// STORAGE ADAPTER - Supabase Version (Single User) - FULLY SAFEGUARDED
 // ============================================================================
 
 export const storage = {
@@ -39,10 +45,12 @@ export const storage = {
       }
       
       const projects = data ? data.map(p => p.project_data) : [];
+      hasLoadedFromSupabase = true; // Mark that we've loaded successfully
       console.log(`✅ Loaded ${projects.length} projects from Supabase`);
       return projects;
     } catch (error) {
       console.error('❌ Error fetching projects:', error);
+      hasLoadedFromSupabase = true; // Still mark as loaded to prevent saves
       return [];
     }
   },
@@ -50,7 +58,21 @@ export const storage = {
   // Save all projects
   async setProjects(projects) {
     try {
-      console.log(`💾 Saving ${projects.length} projects to Supabase...`);
+      console.log(`💾 Attempting to save ${projects.length} projects to Supabase...`);
+      
+      // ⚠️ CRITICAL SAFETY CHECK #1: Don't save before we've loaded
+      if (!hasLoadedFromSupabase) {
+        console.warn('⚠️ SAFETY: Blocking save - Supabase data not loaded yet');
+        console.warn('⚠️ This prevents accidental deletion on app startup');
+        return false;
+      }
+      
+      // ⚠️ CRITICAL SAFETY CHECK #2: Don't save empty arrays (prevents accidental deletion)
+      if (!projects || projects.length === 0) {
+        console.warn('⚠️ SAFETY: Blocking save of empty project array');
+        console.warn('⚠️ If you want to delete all projects, use deleteAllProjects() method');
+        return false;
+      }
       
       // STEP 1: Clean up any orphaned NULL project_id rows
       const { error: cleanupError } = await supabase
@@ -70,8 +92,8 @@ export const storage = {
       }
 
       if (validProjects.length === 0) {
-        console.log('ℹ️ No valid projects to save');
-        return true;
+        console.warn('⚠️ No valid projects to save after filtering');
+        return false;
       }
 
       // STEP 3: Prepare records for upsert
@@ -97,8 +119,17 @@ export const storage = {
       
       // STEP 5: Delete projects that are no longer in the list
       const idsToDelete = existingIds.filter(id => !newIds.includes(id));
+      
+      // ⚠️ CRITICAL SAFETY CHECK #3: Don't delete everything
+      if (idsToDelete.length > 0 && idsToDelete.length === existingIds.length) {
+        console.error('❌ SAFETY: Refusing to delete ALL projects');
+        console.error('❌ This would delete all existing data');
+        console.error('❌ If intentional, use deleteAllProjects() method');
+        return false;
+      }
+      
       if (idsToDelete.length > 0) {
-        console.log(`🗑️ Deleting ${idsToDelete.length} removed projects`);
+        console.log(`🗑️ Deleting ${idsToDelete.length} removed projects:`, idsToDelete);
         const { error: deleteError } = await supabase
           .from('projects')
           .delete()
@@ -107,11 +138,13 @@ export const storage = {
         
         if (deleteError) {
           console.error('❌ Error deleting projects:', deleteError);
+        } else {
+          console.log(`✅ Successfully deleted ${idsToDelete.length} projects`);
         }
       }
 
       // STEP 6: Upsert all projects
-      // CRITICAL FIX: Use composite key (user_id, project_id) to match database constraint
+      // CRITICAL: Use composite key (user_id, project_id) to match database constraint
       const { error: upsertError } = await supabase
         .from('projects')
         .upsert(projectRecords, {
@@ -128,6 +161,24 @@ export const storage = {
       return true;
     } catch (error) {
       console.error('❌ Fatal error saving projects:', error);
+      return false;
+    }
+  },
+
+  // Manual method to delete all projects (requires explicit call)
+  async deleteAllProjects() {
+    try {
+      console.log('🗑️ MANUAL DELETE: Removing all projects for user');
+      const { error } = await supabase
+        .from('projects')
+        .delete()
+        .eq('user_id', FIXED_USER_ID);
+      
+      if (error) throw error;
+      console.log('✅ All projects deleted');
+      return true;
+    } catch (error) {
+      console.error('❌ Error deleting all projects:', error);
       return false;
     }
   },
@@ -151,13 +202,16 @@ export const storage = {
   // Save contacts
   async setContacts(contacts) {
     try {
+      if (!contacts || contacts.length === 0) {
+        console.log('ℹ️ No contacts to save');
+        return true;
+      }
+
       // Delete existing contacts
       await supabase
         .from('contacts')
         .delete()
         .eq('user_id', FIXED_USER_ID);
-
-      if (contacts.length === 0) return true;
 
       // Insert contacts
       const contactRecords = contacts.map(contact => ({
@@ -197,6 +251,11 @@ export const storage = {
   // Save master tasks
   async setMasterTasks(tasks) {
     try {
+      if (!tasks || tasks.length === 0) {
+        console.log('ℹ️ No tasks to save');
+        return true;
+      }
+
       // Upsert (update or insert)
       const { error } = await supabase
         .from('master_tasks')
@@ -228,7 +287,7 @@ export const storage = {
       if (error && error.code !== 'PGRST116') throw error;
       return data ? data.setting_value : null;
     } catch (error) {
-      console.error('Error fetching setting:', error);
+      // Silently return null for missing settings (not an error condition)
       return null;
     }
   },
