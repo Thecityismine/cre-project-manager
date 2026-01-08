@@ -1,37 +1,16 @@
-useEffect(() => {
-  (async () => {
-    try {
-      const FIXED_USER_ID = '00000000-0000-0000-0000-000000000001';
+import React, { useState, useEffect, useRef } from 'react';
+import { storage } from './supabaseConfig';
 
-      console.log('🔎 SUPABASE SMOKE TEST START');
+// ============================================================================
+// NOTE: Storage is now handled by Supabase
+// See supabaseConfig.js for the storage adapter
+// Single user mode - no authentication required
+// ============================================================================
 
-      const insertRes = await supabase
-        .from('projects')
-        .upsert(
-          {
-            user_id: FIXED_USER_ID,
-            project_id: 'debug-' + Date.now(),
-            project_data: { id: 'debug', name: 'Debug Project' },
-          },
-          { onConflict: 'user_id,project_id' }
-        );
-
-      console.log('🟢 INSERT RESULT:', insertRes);
-
-      const selectRes = await supabase
-        .from('projects')
-        .select('user_id, project_id, project_data')
-        .eq('user_id', FIXED_USER_ID);
-
-      console.log('🔵 SELECT RESULT:', selectRes);
-
-      console.log('✅ SUPABASE SMOKE TEST END');
-    } catch (err) {
-      console.error('❌ SUPABASE SMOKE TEST ERROR:', err);
-    }
-  })();
-}, []);
-
+// Set window.storage to use Supabase adapter
+if (typeof window !== 'undefined') {
+  window.storage = storage;
+}
 
 // Lucide React icons - SVG components
 const Plus = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>;
@@ -88,8 +67,6 @@ export default function CREProjectManager() {
   const [projectTab, setProjectTab] = useState('active'); // 'active', 'completed'
   const [projectView, setProjectView] = useState('active'); // 'active', 'archived'
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [lastSaved, setLastSaved] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterTeam, setFilterTeam] = useState('all');
   const [filterSubdivision, setFilterSubdivision] = useState('all');
@@ -592,27 +569,6 @@ EOFSCRIPT`,
     } catch (error) {
       console.error('PDF generation error:', error);
       alert('Error generating PDF. Please try again.');
-    }
-  };
-
-  // Safe save helper with error handling and status indicator
-  const safeSave = async (key, data) => {
-    setSaving(true);
-    try {
-      const result = await window.storage.set(key, JSON.stringify(data));
-      if (result === false) {
-        console.error('❌ Save failed - Supabase returned false');
-        alert('⚠️ Save failed. Please check your connection and try again.');
-        return false;
-      }
-      setLastSaved(new Date());
-      return true;
-    } catch (error) {
-      console.error('❌ Save error:', error);
-      alert('⚠️ Save failed: ' + error.message);
-      return false;
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -1163,11 +1119,7 @@ EOFSCRIPT`,
     setView('projects');
     
     // Save to storage after UI update
-    const saved = await safeSave('projects', updatedProjects);
-    if (!saved) {
-      // If save failed, alert user
-      console.error('Project created but not saved to database');
-    }
+    await window.storage.set('projects', JSON.stringify(updatedProjects));
   };
 
   // Toggle task completion in a project
@@ -5461,12 +5413,13 @@ EOFSCRIPT`,
             <div className="bg-slate-900 rounded-lg p-3 sm:p-4 border border-slate-800 mb-4">
               <div className="flex flex-col sm:flex-row gap-3">
                 <div className="flex-1 relative">
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     type="text"
                     placeholder="Search tasks..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full px-4 py-2 bg-slate-800 rounded border border-slate-700 focus:border-blue-500 focus:outline-none"
+                    className="w-full pl-10 pr-4 py-2 bg-slate-800 rounded border border-slate-700 focus:border-blue-500 focus:outline-none"
                   />
                 </div>
                 <select
@@ -5888,12 +5841,13 @@ EOFSCRIPT`,
             {(projectTab === 'active' || projectTab === 'completed') && (
               <div className="flex flex-col sm:flex-row gap-3 mb-4">
                 <div className="flex-1 sm:min-w-[300px] relative">
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     type="text"
                     placeholder="Search tasks..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full px-4 py-2 bg-slate-900 rounded border border-slate-800 focus:border-blue-500 focus:outline-none text-base"
+                    className="w-full pl-10 pr-4 py-2 bg-slate-900 rounded border border-slate-800 focus:border-blue-500 focus:outline-none text-base"
                   />
                 </div>
                 <select
