@@ -9,14 +9,11 @@ const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // Fixed user ID for single-user mode (no authentication required)
-// This is a placeholder - will be replaced with your actual user ID after first signup
 const FIXED_USER_ID = '00000000-0000-0000-0000-000000000001';
 
 // ============================================================================
-// STORAGE ADAPTER - Supabase Version (Single User)
+// STORAGE ADAPTER - Supabase Version (Single User) - FIXED
 // ============================================================================
-// This adapter replaces localStorage with Supabase database calls
-// No authentication required - uses a fixed user ID
 
 export const storage = {
   // Get all projects for the current user
@@ -25,7 +22,8 @@ export const storage = {
       const { data, error } = await supabase
         .from('projects')
         .select('project_data')
-        .eq('user_id', FIXED_USER_ID);
+        .eq('user_id', FIXED_USER_ID)
+        .not('project_id', 'is', null); // Only get rows with valid project_id
 
       if (error) throw error;
       return data ? data.map(p => p.project_data) : [];
@@ -38,27 +36,38 @@ export const storage = {
   // Save all projects
   async setProjects(projects) {
     try {
-      // Use upsert to safely update/insert projects
-      // This prevents data loss if insert fails
-      const projectRecords = projects.map(project => ({
+      // CRITICAL FIX: Clean up any NULL project_id rows first
+      await supabase
+        .from('projects')
+        .delete()
+        .eq('user_id', FIXED_USER_ID)
+        .is('project_id', null);
+
+      // Validate all projects have an ID
+      const validProjects = projects.filter(p => p.id);
+      if (validProjects.length !== projects.length) {
+        console.warn('Some projects missing ID, skipping:', projects.length - validProjects.length);
+      }
+
+      // Prepare records for upsert
+      const projectRecords = validProjects.map(project => ({
         user_id: FIXED_USER_ID,
         project_id: project.id, // Use project.id as unique identifier
         project_data: project
       }));
 
-      // First, get all existing project IDs to know what to delete
+      // Get existing project IDs to determine what to delete
       const { data: existingProjects } = await supabase
         .from('projects')
         .select('project_id')
-        .eq('user_id', FIXED_USER_ID);
+        .eq('user_id', FIXED_USER_ID)
+        .not('project_id', 'is', null);
 
       const existingIds = existingProjects ? existingProjects.map(p => p.project_id) : [];
-      const newIds = projects.map(p => p.id);
+      const newIds = validProjects.map(p => p.id);
       
-      // Find projects to delete (exist in DB but not in new list)
+      // Delete projects that are no longer in the list
       const idsToDelete = existingIds.filter(id => !newIds.includes(id));
-
-      // Delete removed projects
       if (idsToDelete.length > 0) {
         await supabase
           .from('projects')
@@ -67,17 +76,20 @@ export const storage = {
           .in('project_id', idsToDelete);
       }
 
-      // Upsert all projects (insert new or update existing)
+      // CRITICAL FIX: Use 'project_id' as the conflict column (not composite key)
       const { error } = await supabase
         .from('projects')
         .upsert(projectRecords, {
-          onConflict: 'user_id,project_id'
+          onConflict: 'project_id', // FIXED: Was 'user_id,project_id'
+          ignoreDuplicates: false
         });
 
       if (error) throw error;
+      
+      console.log(`✅ Saved ${validProjects.length} projects successfully`);
       return true;
     } catch (error) {
-      console.error('Error saving projects:', error);
+      console.error('❌ Error saving projects:', error);
       return false;
     }
   },
