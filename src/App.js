@@ -1,23 +1,3 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { storage, supabase } from './supabaseConfig';
-
-// ============================================================================
-// NOTE: Storage is now handled by Supabase
-// See supabaseConfig.js for the storage adapter
-// Single user mode - no authentication required
-// ============================================================================
-
-// Set window.storage to use Supabase adapter
-if (typeof window !== 'undefined') {
-  window.storage = storage;
-}
-
-// ============================================================================
-// TEMPORARY DEBUG: Supabase smoke test
-// This proves: env vars → client → RLS → table → read/write
-// REMOVE AFTER DEBUGGING
-// ============================================================================
-
 useEffect(() => {
   (async () => {
     try {
@@ -25,7 +5,6 @@ useEffect(() => {
 
       console.log('🔎 SUPABASE SMOKE TEST START');
 
-      // 1) Write a test project
       const insertRes = await supabase
         .from('projects')
         .upsert(
@@ -39,7 +18,6 @@ useEffect(() => {
 
       console.log('🟢 INSERT RESULT:', insertRes);
 
-      // 2) Read projects back
       const selectRes = await supabase
         .from('projects')
         .select('user_id, project_id, project_data')
@@ -53,6 +31,7 @@ useEffect(() => {
     }
   })();
 }, []);
+
 
 // Lucide React icons - SVG components
 const Plus = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>;
