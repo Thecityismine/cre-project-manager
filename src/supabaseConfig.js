@@ -6,7 +6,11 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = 'https://pfezzjooguixoyawuzhd.supabase.co';
 const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBmZXp6am9vZ3VpeG95YXd1emhkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc2NDQ5MjMsImV4cCI6MjA4MzIyMDkyM30.g6uJdiwWYTqNrplu4_gqc4_cVCIN2KdvgT0zzBQYu_Y';
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  realtime: {
+    enabled: false
+  }
+});
 
 // Fixed user ID for single-user mode (no authentication required)
 const FIXED_USER_ID = '00000000-0000-0000-0000-000000000001';
