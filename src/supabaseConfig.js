@@ -3,183 +3,200 @@
 // ============================================================================
 import { createClient } from '@supabase/supabase-js';
 
+// ✅ RECOMMENDED: Use Vercel env vars
+const supabaseUrl = process.env.REACT_APP_SUPABASE_URL;
+const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
+
+/*
+// If you insist on hardcoding (not recommended), uncomment these and delete the env version above:
 const supabaseUrl = 'https://pfezzjooguixoyawuzhd.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBmZXp6am9vZ3VpeG95YXd1emhkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njc2NDQ5MjMsImV4cCI6MjA4MzIyMDkyM30.g6uJdiwWYTqNrplu4_gqc4_cVCIN2KdvgT0zzBQYu_Y';
+const supabaseAnonKey = 'YOUR_ANON_KEY';
+*/
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  // Fail loudly, otherwise you get a white screen and mystery bugs.
+  throw new Error(
+    'Missing Supabase env vars. Set REACT_APP_SUPABASE_URL and REACT_APP_SUPABASE_ANON_KEY in Vercel.'
+  );
+}
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  realtime: {
-    enabled: false
-  }
+  realtime: { enabled: false },
 });
 
 // Fixed user ID for single-user mode (no authentication required)
 const FIXED_USER_ID = '00000000-0000-0000-0000-000000000001';
 
 // ============================================================================
-// STORAGE ADAPTER - Supabase Version (Single User) - FIXED
+// STORAGE ADAPTER (Single User)
+// - window.storage.get(key) -> string | null
+// - window.storage.set(key, string) -> boolean
 // ============================================================================
-
 export const storage = {
-  // Get all projects for the current user
+  // -------------------------
+  // Projects
+  // -------------------------
   async getProjects() {
     try {
       const { data, error } = await supabase
         .from('projects')
         .select('project_data')
-        .eq('user_id', FIXED_USER_ID)
-        .not('project_id', 'is', null); // Only get rows with valid project_id
+        .eq('user_id', FIXED_USER_ID);
 
       if (error) throw error;
-      return data ? data.map(p => p.project_data) : [];
-    } catch (error) {
-      console.error('Error fetching projects:', error);
+      return (data || []).map((row) => row.project_data);
+    } catch (err) {
+      console.error('Error fetching projects:', err);
       return [];
     }
   },
 
-  // Save all projects
   async setProjects(projects) {
     try {
-      // CRITICAL FIX: Clean up any NULL project_id rows first
-      await supabase
-        .from('projects')
-        .delete()
-        .eq('user_id', FIXED_USER_ID)
-        .is('project_id', null);
-
-      // Validate all projects have an ID
-      const validProjects = projects.filter(p => p.id);
-      if (validProjects.length !== projects.length) {
-        console.warn('Some projects missing ID, skipping:', projects.length - validProjects.length);
+      // Keep only projects with an id
+      const validProjects = (projects || []).filter((p) => p && p.id);
+      if (validProjects.length !== (projects || []).length) {
+        console.warn(
+          'Some projects missing id, skipped:',
+          (projects || []).length - validProjects.length
+        );
       }
 
-      // Prepare records for upsert
-      const projectRecords = validProjects.map(project => ({
+      // Upsert all current projects
+      const projectRecords = validProjects.map((project) => ({
         user_id: FIXED_USER_ID,
-        project_id: project.id, // Use project.id as unique identifier
-        project_data: project
+        project_id: String(project.id),
+        project_data: project,
       }));
 
-      // Get existing project IDs to determine what to delete
-      const { data: existingProjects } = await supabase
+      if (projectRecords.length > 0) {
+        const { error: upsertError } = await supabase
+          .from('projects')
+          .upsert(projectRecords, {
+            onConflict: 'user_id,project_id',
+            ignoreDuplicates: false,
+          });
+
+        if (upsertError) throw upsertError;
+      }
+
+      // Optional: delete rows that are no longer present
+      // This is safe because it happens AFTER upsert, not before.
+      const { data: existing, error: readError } = await supabase
         .from('projects')
         .select('project_id')
-        .eq('user_id', FIXED_USER_ID)
-        .not('project_id', 'is', null);
+        .eq('user_id', FIXED_USER_ID);
 
-      const existingIds = existingProjects ? existingProjects.map(p => p.project_id) : [];
-      const newIds = validProjects.map(p => p.id);
-      
-      // Delete projects that are no longer in the list
-      const idsToDelete = existingIds.filter(id => !newIds.includes(id));
+      if (readError) throw readError;
+
+      const existingIds = (existing || []).map((r) => String(r.project_id));
+      const newIds = validProjects.map((p) => String(p.id));
+      const idsToDelete = existingIds.filter((id) => !newIds.includes(id));
+
       if (idsToDelete.length > 0) {
-        await supabase
+        const { error: deleteError } = await supabase
           .from('projects')
           .delete()
           .eq('user_id', FIXED_USER_ID)
           .in('project_id', idsToDelete);
+
+        if (deleteError) throw deleteError;
       }
 
-      // CRITICAL FIX: Use 'project_id' as the conflict column (not composite key)
-      const { error } = await supabase
-        .from('projects')
-        .upsert(projectRecords, {
-          onConflict: 'project_id', // FIXED: Was 'user_id,project_id'
-          ignoreDuplicates: false
-        });
-
-      if (error) throw error;
-      
-      console.log(`✅ Saved ${validProjects.length} projects successfully`);
+      console.log(`✅ Saved ${validProjects.length} projects`);
       return true;
-    } catch (error) {
-      console.error('❌ Error saving projects:', error);
+    } catch (err) {
+      console.error('❌ Error saving projects:', err);
       return false;
     }
   },
 
-  // Get contacts
+  // -------------------------
+  // Contacts (stored as one JSON blob row to avoid delete/insert issues)
+  // Table: contacts_kv (user_id PK, contacts_data jsonb)
+  // -------------------------
   async getContacts() {
     try {
       const { data, error } = await supabase
-        .from('contacts')
-        .select('contact_data')
-        .eq('user_id', FIXED_USER_ID);
+        .from('contacts_kv')
+        .select('contacts_data')
+        .eq('user_id', FIXED_USER_ID)
+        .maybeSingle();
 
       if (error) throw error;
-      return data ? data.map(c => c.contact_data) : [];
-    } catch (error) {
-      console.error('Error fetching contacts:', error);
+      return data?.contacts_data || [];
+    } catch (err) {
+      console.error('Error fetching contacts:', err);
       return [];
     }
   },
 
-  // Save contacts
   async setContacts(contacts) {
     try {
-      // Delete existing contacts
-      await supabase
-        .from('contacts')
-        .delete()
-        .eq('user_id', FIXED_USER_ID);
-
-      // Insert contacts
-      const contactRecords = contacts.map(contact => ({
-        user_id: FIXED_USER_ID,
-        contact_data: contact
-      }));
-
       const { error } = await supabase
-        .from('contacts')
-        .insert(contactRecords);
+        .from('contacts_kv')
+        .upsert(
+          {
+            user_id: FIXED_USER_ID,
+            contacts_data: contacts || [],
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'user_id' }
+        );
 
       if (error) throw error;
       return true;
-    } catch (error) {
-      console.error('Error saving contacts:', error);
+    } catch (err) {
+      console.error('Error saving contacts:', err);
       return false;
     }
   },
 
-  // Get master tasks
+  // -------------------------
+  // Master Tasks (stored as one JSON blob row)
+  // Table: master_tasks (user_id PK, tasks_data jsonb)
+  // -------------------------
   async getMasterTasks() {
     try {
       const { data, error } = await supabase
         .from('master_tasks')
         .select('tasks_data')
         .eq('user_id', FIXED_USER_ID)
-        .single();
+        .maybeSingle();
 
-      if (error && error.code !== 'PGRST116') throw error; // PGRST116 = no rows
-      return data ? data.tasks_data : [];
-    } catch (error) {
-      console.error('Error fetching master tasks:', error);
+      if (error) throw error;
+      return data?.tasks_data || [];
+    } catch (err) {
+      console.error('Error fetching master tasks:', err);
       return [];
     }
   },
 
-  // Save master tasks
   async setMasterTasks(tasks) {
     try {
-      // Upsert (update or insert)
       const { error } = await supabase
         .from('master_tasks')
-        .upsert({
-          user_id: FIXED_USER_ID,
-          tasks_data: tasks
-        }, {
-          onConflict: 'user_id'
-        });
+        .upsert(
+          {
+            user_id: FIXED_USER_ID,
+            tasks_data: tasks || [],
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'user_id' }
+        );
 
       if (error) throw error;
       return true;
-    } catch (error) {
-      console.error('Error saving master tasks:', error);
+    } catch (err) {
+      console.error('Error saving master tasks:', err);
       return false;
     }
   },
 
-  // Get app settings (teams, etc)
+  // -------------------------
+  // App settings (one row per setting key)
+  // Table: app_settings (user_id + setting_key unique)
+  // -------------------------
   async getSetting(key) {
     try {
       const { data, error } = await supabase
@@ -187,79 +204,81 @@ export const storage = {
         .select('setting_value')
         .eq('user_id', FIXED_USER_ID)
         .eq('setting_key', key)
-        .single();
+        .maybeSingle();
 
-      if (error && error.code !== 'PGRST116') throw error;
-      return data ? data.setting_value : null;
-    } catch (error) {
-      console.error('Error fetching setting:', error);
+      if (error) throw error;
+      return data?.setting_value ?? null;
+    } catch (err) {
+      console.error('Error fetching setting:', err);
       return null;
     }
   },
 
-  // Save app setting
   async setSetting(key, value) {
     try {
       const { error } = await supabase
         .from('app_settings')
-        .upsert({
-          user_id: FIXED_USER_ID,
-          setting_key: key,
-          setting_value: value
-        }, {
-          onConflict: 'user_id,setting_key'
-        });
+        .upsert(
+          {
+            user_id: FIXED_USER_ID,
+            setting_key: key,
+            setting_value: value,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'user_id,setting_key' }
+        );
 
       if (error) throw error;
       return true;
-    } catch (error) {
-      console.error('Error saving setting:', error);
+    } catch (err) {
+      console.error('Error saving setting:', err);
       return false;
     }
   },
 
-  // Legacy methods for backward compatibility with window.storage API
+  // -------------------------
+  // Compatibility: window.storage API
+  // -------------------------
   async get(key) {
     if (key === 'projects') {
       const projects = await this.getProjects();
-      return projects.length > 0 ? { key, value: JSON.stringify(projects) } : null;
+      return projects.length ? JSON.stringify(projects) : null;
     }
     if (key === 'contacts') {
       const contacts = await this.getContacts();
-      return contacts.length > 0 ? { key, value: JSON.stringify(contacts) } : null;
+      return contacts.length ? JSON.stringify(contacts) : null;
     }
     if (key === 'master-tasks') {
       const tasks = await this.getMasterTasks();
-      return tasks.length > 0 ? { key, value: JSON.stringify(tasks) } : null;
+      return tasks.length ? JSON.stringify(tasks) : null;
     }
-    // For other keys, use settings table
-    const value = await this.getSetting(key);
-    return value ? { key, value: JSON.stringify(value) } : null;
+
+    const setting = await this.getSetting(key);
+    return setting != null ? JSON.stringify(setting) : null;
   },
 
   async set(key, value) {
-    const parsed = JSON.parse(value);
-    
-    if (key === 'projects') {
-      return await this.setProjects(parsed);
+    let parsed;
+    try {
+      parsed = typeof value === 'string' ? JSON.parse(value) : value;
+    } catch (e) {
+      console.error(`[storage.set] JSON parse failed for key="${key}"`, e);
+      return false;
     }
-    if (key === 'contacts') {
-      return await this.setContacts(parsed);
-    }
-    if (key === 'master-tasks') {
-      return await this.setMasterTasks(parsed);
-    }
-    // For other keys, use settings table
+
+    if (key === 'projects') return await this.setProjects(parsed);
+    if (key === 'contacts') return await this.setContacts(parsed);
+    if (key === 'master-tasks') return await this.setMasterTasks(parsed);
+
     return await this.setSetting(key, parsed);
   },
 
-  async delete(key) {
-    // Implement if needed
-    return { key, deleted: true };
+  async remove(key) {
+    // Optional: implement if you need it
+    // For now, treat remove as clearing the value.
+    if (key === 'projects') return await this.setProjects([]);
+    if (key === 'contacts') return await this.setContacts([]);
+    if (key === 'master-tasks') return await this.setMasterTasks([]);
+    return await this.setSetting(key, null);
   },
-
-  async list(prefix) {
-    // Implement if needed
-    return { keys: [] };
-  }
 };
