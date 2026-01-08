@@ -1038,8 +1038,16 @@ EOFSCRIPT`,
   };
 
   // Create new project
-  const createProject-FIXED.txt = async () => {
-    if (!newProjectForm.name.trim()) return;
+  const createProject = async () => {
+    console.log('🆕 Creating new project...');
+    
+    if (!newProjectForm.name.trim()) {
+      console.log('⚠️ Project name is empty, aborting');
+      return;
+    }
+
+    console.log(`📝 Project name: "${newProjectForm.name}"`);
+    console.log(`📊 Current projects count: ${projects.length}`);
 
     // Default schedule items
     const defaultScheduleItems = [
@@ -1077,8 +1085,9 @@ EOFSCRIPT`,
       { id: `bid-${Date.now()}-6`, phase: 'Best and Final', date: '', notes: '', createdAt: new Date().toISOString() }
     ];
 
+    const newProjectId = Date.now().toString();
     const newProject = {
-      id: Date.now().toString(),
+      id: newProjectId,
       name: newProjectForm.name,
       projectType: newProjectForm.projectType,
       address: newProjectForm.address,
@@ -1103,13 +1112,46 @@ EOFSCRIPT`,
       tasks: masterTasks.map(task => ({
         ...task,
         completed: false,
-        projectId: Date.now().toString()
+        projectId: newProjectId
       }))
     };
 
+    console.log('📦 New project object created:', { 
+      id: newProject.id, 
+      name: newProject.name,
+      tasksCount: newProject.tasks.length
+    });
+
     const updatedProjects = [...projects, newProject];
     
-    // Update state and close form immediately
+    console.log('📊 Updated projects array:', {
+      oldCount: projects.length,
+      newCount: updatedProjects.length,
+      projectIds: updatedProjects.map(p => p.id)
+    });
+
+    // CRITICAL: Save to storage BEFORE updating state
+    console.log('💾 Saving to Supabase...');
+    try {
+      const saveResult = await window.storage.set('projects', JSON.stringify(updatedProjects));
+      console.log('✅ Save result:', saveResult);
+      
+      if (!saveResult) {
+        console.error('❌ Save failed - no result returned');
+        alert('Failed to save project. Please try again.');
+        return;
+      }
+      
+      console.log(`✅ Successfully saved ${updatedProjects.length} projects to Supabase`);
+    } catch (error) {
+      console.error('❌ Error saving to Supabase:', error);
+      alert('Error saving project: ' + error.message);
+      return;
+    }
+    
+    console.log('✅ Save successful, now updating UI...');
+    
+    // Update state and close form AFTER successful save
     setProjects(updatedProjects);
     setNewProjectForm({ name: '', projectType: 'Standard', address: '', sqft: '', approvedBudget: '', leaseExpiration: '', logo: '' });
     
@@ -1118,8 +1160,7 @@ EOFSCRIPT`,
     
     setView('projects');
     
-    // Save to storage after UI update
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    console.log('✅ Project creation complete');
   };
 
   // Toggle task completion in a project
