@@ -172,7 +172,7 @@ export default function CREProjectManager() {
   const [selectedPerformanceContact, setSelectedPerformanceContact] = useState(null);
 
   // Consistent milestone ordering - used across all views
-  const MILESTONE_ORDER = ['Funding Approval', 'Design Start', 'Construction Start', 'Substantial Completion', 'Handover', 'Go Live', 'Warranty Start'];
+  const MILESTONE_ORDER = ['Funding Approval', 'Design Start', 'Construction Start', 'Substantial Completion', 'Handover', 'Go Live'];
   
   const sortScheduleItems = (items) => {
     return [...items].sort((a, b) => {
@@ -1065,22 +1065,21 @@ EOFSCRIPT`,
       { id: `${Date.now()}-4`, name: 'Substantial Completion', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
       { id: `${Date.now()}-5`, name: 'Handover', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
       { id: `${Date.now()}-6`, name: 'Go Live', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
-      { id: `${Date.now()}-7`, name: 'Warranty Start', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
       // Post-Handover items (target dates only)
-      { id: `${Date.now()}-8`, name: 'Site Survey', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
-      { id: `${Date.now()}-9`, name: 'Design Development', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
-      { id: `${Date.now()}-10`, name: 'LOB Awareness', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
-      { id: `${Date.now()}-11`, name: 'Issue for Permit', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
-      { id: `${Date.now()}-12`, name: 'Permit Process', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
-      { id: `${Date.now()}-13`, name: 'MER Freeze #1', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
-      { id: `${Date.now()}-14`, name: 'MER Freeze #2', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
-      { id: `${Date.now()}-15`, name: 'MER Handover to GTI', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
-      { id: `${Date.now()}-16`, name: 'MER Shell Ready', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
-      { id: `${Date.now()}-17`, name: 'MER Room Ready', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
-      { id: `${Date.now()}-18`, name: 'MER Pro. Ready', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
-      { id: `${Date.now()}-19`, name: 'Furniture Install', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
-      { id: `${Date.now()}-20`, name: 'Desktop Install', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
-      { id: `${Date.now()}-21`, name: 'Equipment Delivery', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() }
+      { id: `${Date.now()}-7`, name: 'Site Survey', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
+      { id: `${Date.now()}-8`, name: 'Design Development', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
+      { id: `${Date.now()}-9`, name: 'LOB Awareness', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
+      { id: `${Date.now()}-10`, name: 'Issue for Permit', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
+      { id: `${Date.now()}-11`, name: 'Permit Process', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
+      { id: `${Date.now()}-12`, name: 'MER Freeze #1', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
+      { id: `${Date.now()}-13`, name: 'MER Freeze #2', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
+      { id: `${Date.now()}-14`, name: 'MER Handover to GTI', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
+      { id: `${Date.now()}-15`, name: 'MER Shell Ready', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
+      { id: `${Date.now()}-16`, name: 'MER Room Ready', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
+      { id: `${Date.now()}-17`, name: 'MER Pro. Ready', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
+      { id: `${Date.now()}-18`, name: 'Furniture Install', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
+      { id: `${Date.now()}-19`, name: 'Desktop Install', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() },
+      { id: `${Date.now()}-20`, name: 'Equipment Delivery', approvedStartDate: '', approvedEndDate: '', targetStartDate: '', targetEndDate: '', createdAt: new Date().toISOString() }
     ];
 
     // Default bid schedule phases
@@ -5478,13 +5477,12 @@ EOFSCRIPT`,
             <div className="bg-slate-900 rounded-lg p-3 sm:p-4 border border-slate-800 mb-4">
               <div className="flex flex-col sm:flex-row gap-3">
                 <div className="flex-1 relative">
-                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     type="text"
                     placeholder="Search tasks..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 bg-slate-800 rounded border border-slate-700 focus:border-blue-500 focus:outline-none"
+                    className="w-full pl-4 pr-4 py-2 bg-slate-800 rounded border border-slate-700 focus:border-blue-500 focus:outline-none"
                   />
                 </div>
                 <select
@@ -5906,13 +5904,12 @@ EOFSCRIPT`,
             {(projectTab === 'active' || projectTab === 'completed') && (
               <div className="flex flex-col sm:flex-row gap-3 mb-4">
                 <div className="flex-1 sm:min-w-[300px] relative">
-                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
                     type="text"
                     placeholder="Search tasks..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 bg-slate-900 rounded border border-slate-800 focus:border-blue-500 focus:outline-none text-base"
+                    className="w-full pl-4 pr-4 py-2 bg-slate-900 rounded border border-slate-800 focus:border-blue-500 focus:outline-none text-base"
                   />
                 </div>
                 <select
