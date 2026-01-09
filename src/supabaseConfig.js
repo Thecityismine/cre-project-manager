@@ -23,6 +23,30 @@ const FIXED_USER_ID = '00000000-0000-0000-0000-000000000001';
 // Track if we've ever loaded from Supabase (prevents premature saves)
 let hasLoadedFromSupabase = false;
 
+// Track if Supabase is initialized
+let isSupabaseReady = false;
+
+// Initialize Supabase connection
+const initializeSupabase = async () => {
+  if (isSupabaseReady) return true;
+  
+  console.log('🔄 Initializing Supabase connection...');
+  try {
+    // Test the connection with a simple query
+    const { error } = await supabase.from('projects').select('id').limit(1);
+    if (error) {
+      console.error('❌ Supabase connection test failed:', error);
+      return false;
+    }
+    isSupabaseReady = true;
+    console.log('✅ Supabase connection ready');
+    return true;
+  } catch (error) {
+    console.error('❌ Error initializing Supabase:', error);
+    return false;
+  }
+};
+
 // ============================================================================
 // STORAGE ADAPTER - Supabase Version (Single User) - FULLY SAFEGUARDED
 // ============================================================================
@@ -31,6 +55,14 @@ export const storage = {
   // Get all projects for the current user
   async getProjects() {
     try {
+      // CRITICAL: Wait for Supabase to be ready
+      console.log('⏳ Ensuring Supabase is ready...');
+      const ready = await initializeSupabase();
+      if (!ready) {
+        console.error('❌ Supabase not ready, returning empty array');
+        return [];
+      }
+      
       console.log('🔍 Loading projects from Supabase...');
       console.log(`📊 User ID: ${FIXED_USER_ID}`);
       
@@ -53,6 +85,33 @@ export const storage = {
       
       console.log('📦 Raw data from Supabase:', data);
       const projects = data ? data.map(p => p.project_data) : [];
+      
+      // CRITICAL: If we got empty results, retry once after a short delay
+      // This handles cases where Supabase isn't fully ready
+      if (projects.length === 0 && !hasLoadedFromSupabase) {
+        console.log('⚠️ Got empty results on first load, retrying in 500ms...');
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        const { data: retryData, error: retryError } = await supabase
+          .from('projects')
+          .select('project_data')
+          .eq('user_id', FIXED_USER_ID)
+          .not('project_id', 'is', null);
+        
+        if (retryError) {
+          console.error('❌ Retry failed:', retryError);
+        } else {
+          console.log('📦 Retry raw data:', retryData);
+          const retryProjects = retryData ? retryData.map(p => p.project_data) : [];
+          if (retryProjects.length > 0) {
+            console.log(`✅ Retry successful! Found ${retryProjects.length} projects`);
+            hasLoadedFromSupabase = true;
+            console.log('🏁 hasLoadedFromSupabase flag set to TRUE');
+            return retryProjects;
+          }
+        }
+      }
+      
       hasLoadedFromSupabase = true; // Mark that we've loaded successfully
       console.log(`✅ Loaded ${projects.length} projects from Supabase`);
       console.log('🏁 hasLoadedFromSupabase flag set to TRUE');
@@ -157,6 +216,11 @@ export const storage = {
         console.error('❌ SAFETY: Refusing to delete ALL projects');
         console.error('❌ This would delete all existing data');
         console.error('❌ If intentional, use deleteAllProjects() method');
+        console.error('📋 Projects to delete:', idsToDelete);
+        console.error('📋 New projects:', newIds);
+        
+        // ADDITIONAL CHECK: If we just loaded and got empty, don't allow mass deletion
+        console.error('⚠️ This looks like a race condition - refusing to proceed');
         return false;
       }
       
