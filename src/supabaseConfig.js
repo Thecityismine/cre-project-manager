@@ -1,6 +1,6 @@
 // ============================================================================
 // SUPABASE CONFIGURATION - Single User Mode (No Auth)
-// SAFEGUARDED VERSION - Prevents accidental data deletion
+// SAFEGUARDED VERSION - Enhanced error logging and diagnostics
 // ============================================================================
 import { createClient } from '@supabase/supabase-js';
 
@@ -32,6 +32,7 @@ export const storage = {
   async getProjects() {
     try {
       console.log('🔍 Loading projects from Supabase...');
+      console.log(`📊 User ID: ${FIXED_USER_ID}`);
       
       const { data, error } = await supabase
         .from('projects')
@@ -41,16 +42,25 @@ export const storage = {
 
       if (error) {
         console.error('❌ Error loading projects:', error);
+        console.error('📋 Error details:', {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint
+        });
         throw error;
       }
       
+      console.log('📦 Raw data from Supabase:', data);
       const projects = data ? data.map(p => p.project_data) : [];
       hasLoadedFromSupabase = true; // Mark that we've loaded successfully
       console.log(`✅ Loaded ${projects.length} projects from Supabase`);
+      console.log('🏁 hasLoadedFromSupabase flag set to TRUE');
       return projects;
     } catch (error) {
       console.error('❌ Error fetching projects:', error);
       hasLoadedFromSupabase = true; // Still mark as loaded to prevent saves
+      console.log('⚠️ hasLoadedFromSupabase flag set to TRUE (error case)');
       return [];
     }
   },
@@ -58,7 +68,10 @@ export const storage = {
   // Save all projects
   async setProjects(projects) {
     try {
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.log(`💾 Attempting to save ${projects.length} projects to Supabase...`);
+      console.log(`🏁 hasLoadedFromSupabase flag: ${hasLoadedFromSupabase}`);
+      console.log(`📊 User ID: ${FIXED_USER_ID}`);
       
       // ⚠️ CRITICAL SAFETY CHECK #1: Don't save before we've loaded
       if (!hasLoadedFromSupabase) {
@@ -74,7 +87,10 @@ export const storage = {
         return false;
       }
       
+      console.log('✅ Safety checks passed');
+      
       // STEP 1: Clean up any orphaned NULL project_id rows
+      console.log('🧹 Step 1: Cleaning up orphaned rows...');
       const { error: cleanupError } = await supabase
         .from('projects')
         .delete()
@@ -83,13 +99,17 @@ export const storage = {
       
       if (cleanupError) {
         console.warn('⚠️ Cleanup warning:', cleanupError);
+      } else {
+        console.log('✅ Cleanup complete');
       }
 
       // STEP 2: Validate all projects have an ID
+      console.log('🔍 Step 2: Validating project IDs...');
       const validProjects = projects.filter(p => p && p.id);
       if (validProjects.length !== projects.length) {
         console.warn(`⚠️ Filtered out ${projects.length - validProjects.length} projects without IDs`);
       }
+      console.log(`✅ ${validProjects.length} valid projects ready to save`);
 
       if (validProjects.length === 0) {
         console.warn('⚠️ No valid projects to save after filtering');
@@ -97,13 +117,20 @@ export const storage = {
       }
 
       // STEP 3: Prepare records for upsert
+      console.log('📦 Step 3: Preparing project records...');
       const projectRecords = validProjects.map(project => ({
         user_id: FIXED_USER_ID,
         project_id: String(project.id), // Ensure it's a string
         project_data: project
       }));
+      
+      console.log('📋 Project records to upsert:', projectRecords.map(p => ({
+        project_id: p.project_id,
+        name: p.project_data.name
+      })));
 
       // STEP 4: Get existing project IDs to determine deletions
+      console.log('🔍 Step 4: Fetching existing projects...');
       const { data: existingProjects, error: fetchError } = await supabase
         .from('projects')
         .select('project_id')
@@ -112,10 +139,15 @@ export const storage = {
 
       if (fetchError) {
         console.error('❌ Error fetching existing projects:', fetchError);
+      } else {
+        console.log(`✅ Found ${existingProjects?.length || 0} existing projects`);
       }
 
       const existingIds = existingProjects ? existingProjects.map(p => p.project_id) : [];
       const newIds = validProjects.map(p => String(p.id));
+      
+      console.log('📊 Existing project IDs:', existingIds);
+      console.log('📊 New project IDs:', newIds);
       
       // STEP 5: Delete projects that are no longer in the list
       const idsToDelete = existingIds.filter(id => !newIds.includes(id));
@@ -129,7 +161,7 @@ export const storage = {
       }
       
       if (idsToDelete.length > 0) {
-        console.log(`🗑️ Deleting ${idsToDelete.length} removed projects:`, idsToDelete);
+        console.log(`🗑️ Step 5: Deleting ${idsToDelete.length} removed projects:`, idsToDelete);
         const { error: deleteError } = await supabase
           .from('projects')
           .delete()
@@ -141,26 +173,85 @@ export const storage = {
         } else {
           console.log(`✅ Successfully deleted ${idsToDelete.length} projects`);
         }
+      } else {
+        console.log('✅ Step 5: No projects to delete');
       }
 
       // STEP 6: Upsert all projects
-      // CRITICAL: Use composite key (user_id, project_id) to match database constraint
-      const { error: upsertError } = await supabase
+      console.log(`💾 Step 6: Upserting ${projectRecords.length} projects...`);
+      
+      // Try with the composite key first
+      console.log('🔧 Attempting upsert with composite key (user_id, project_id)...');
+      const { data: upsertData, error: upsertError } = await supabase
         .from('projects')
         .upsert(projectRecords, {
-          onConflict: 'user_id,project_id', // Matches projects_user_project_unique constraint
+          onConflict: 'user_id,project_id',
           ignoreDuplicates: false
-        });
+        })
+        .select();
 
       if (upsertError) {
-        console.error('❌ Error upserting projects:', upsertError);
-        throw upsertError;
+        console.error('❌ Error upserting projects with composite key:', upsertError);
+        console.error('📋 Error details:', {
+          message: upsertError.message,
+          code: upsertError.code,
+          details: upsertError.details,
+          hint: upsertError.hint
+        });
+        
+        // Try alternative approach: delete and insert
+        console.log('🔄 Trying alternative: delete all + insert...');
+        const { error: deleteAllError } = await supabase
+          .from('projects')
+          .delete()
+          .eq('user_id', FIXED_USER_ID);
+          
+        if (deleteAllError) {
+          console.error('❌ Error deleting all projects:', deleteAllError);
+          throw deleteAllError;
+        }
+        
+        const { error: insertError } = await supabase
+          .from('projects')
+          .insert(projectRecords);
+          
+        if (insertError) {
+          console.error('❌ Error inserting projects:', insertError);
+          throw insertError;
+        }
+        
+        console.log('✅ Successfully saved via delete + insert approach');
+      } else {
+        console.log('✅ Upsert successful!');
+        console.log('📦 Upsert response data:', upsertData);
+      }
+      
+      // STEP 7: Verify the save
+      console.log('🔍 Step 7: Verifying save...');
+      const { data: verifyData, error: verifyError } = await supabase
+        .from('projects')
+        .select('project_id, project_data')
+        .eq('user_id', FIXED_USER_ID);
+        
+      if (verifyError) {
+        console.error('❌ Error verifying save:', verifyError);
+      } else {
+        console.log(`✅ Verification: Found ${verifyData.length} projects in database`);
+        console.log('📋 Saved project IDs:', verifyData.map(p => p.project_id));
+        
+        if (verifyData.length !== validProjects.length) {
+          console.error(`⚠️ MISMATCH: Tried to save ${validProjects.length} but found ${verifyData.length}!`);
+        }
       }
       
       console.log(`✅ Successfully saved ${validProjects.length} projects to Supabase`);
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       return true;
     } catch (error) {
+      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.error('❌ Fatal error saving projects:', error);
+      console.error('📋 Error stack:', error.stack);
+      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       return false;
     }
   },
