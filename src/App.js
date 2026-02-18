@@ -2,9 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { storage } from './supabaseConfig';
 
 // ============================================================================
-// NOTE: Storage is now handled by Supabase
-// See supabaseConfig.js for the storage adapter
-// Single user mode - no authentication required
+// PHASE 4: SUPABASE VERSION
+// Now using Supabase for cloud storage and cross-device sync
+// All data is stored in Supabase tables
 // ============================================================================
 
 // Set window.storage to use Supabase adapter
@@ -29,19 +29,23 @@ const ChevronDown = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" hei
 const ChevronUp = () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg>;
 
 // ============================================================================
-// STORAGE CONFIGURATION
+// STORAGE CONFIGURATION - PHASE 4: SUPABASE CLOUD STORAGE
 // ============================================================================
-// Storage mode: controls where data is saved
-// - 'local': Browser localStorage (current - works cross-device in Claude)
-// - 'supabase': Supabase backend (for future migration)
-// - 'firebase': Firebase backend (alternative option)
+// Current mode: Supabase (PostgreSQL cloud database)
+// - Works online
+// - Persists across all devices
+// - Cross-device sync enabled
+// - Real cloud storage
+// 
+// All data is stored in Supabase tables via supabaseConfig.js
+// ============================================================================
+
 const STORAGE_CONFIG = {
-  mode: 'local', // Change this when migrating to cloud storage
-  version: '1.0.0', // Track schema version for migrations
+  version: '1.0.0-phase4-supabase'
 };
 
-// Note: Using window.storage directly throughout the app
-// This is the persistent storage API provided by the Claude interface
+// Note: Using window.storage which now points to Supabase
+// See supabaseConfig.js for the storage adapter implementation
 // ============================================================================
 
 export default function CREProjectManager() {
@@ -58,6 +62,16 @@ export default function CREProjectManager() {
     }
     // Otherwise use standard date parsing
     return new Date(dateString).toLocaleDateString();
+  };
+
+  // Helper function to create Date objects from YYYY-MM-DD strings without timezone issues
+  const parseLocalDate = (dateString) => {
+    if (!dateString) return null;
+    if (typeof dateString === 'string' && dateString.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      const [year, month, day] = dateString.split('-').map(Number);
+      return new Date(year, month - 1, day);
+    }
+    return new Date(dateString);
   };
 
   const [masterTasks, setMasterTasks] = useState([]);
@@ -173,6 +187,9 @@ export default function CREProjectManager() {
 
   // Consistent milestone ordering - used across all views
   const MILESTONE_ORDER = ['Funding Approval', 'Design Start', 'Construction Start', 'Substantial Completion', 'Handover', 'Go Live'];
+
+  const saveTimerRef = useRef(null);
+  const pendingSaveRef = useRef(null);
   
   const sortScheduleItems = (items) => {
     return [...items].sort((a, b) => {
@@ -220,6 +237,30 @@ export default function CREProjectManager() {
     'Clients Center Playbook',
     'REPER Playbook'
   ];
+
+  const normalizeName = (value) => {
+    if (typeof value !== 'string') return '';
+    return value.trim().replace(/\s+/g, ' ');
+  };
+
+  const dedupeNames = (items = []) => {
+    if (!Array.isArray(items)) return [];
+    const seen = new Set();
+    return items.reduce((acc, item) => {
+      const normalized = normalizeName(item);
+      if (!normalized) return acc;
+      const key = normalized.toLowerCase();
+      if (seen.has(key)) return acc;
+      seen.add(key);
+      acc.push(normalized);
+      return acc;
+    }, []);
+  };
+
+  const builtInTeamKeys = new Set(teams.map(team => team.toLowerCase()));
+  const sanitizeCustomTeams = (items = []) =>
+    dedupeNames(items).filter(team => !builtInTeamKeys.has(team.toLowerCase()));
+
   const subdivisions = [
     'Design',
     'Design Start',
@@ -272,7 +313,7 @@ export default function CREProjectManager() {
     'Retail Project'
   ];
 
-  const allTeams = [...teams, ...customTeams];
+  const allTeams = dedupeNames([...teams, ...customTeams]);
   const allSubdivisions = [...subdivisions, ...customSubdivisions];
   const allProjectTypes = [...projectTypes, ...customProjectTypes];
 
@@ -625,16 +666,6 @@ EOFSCRIPT`,
     }
   }, [view, projects, mapInitialized]);
 
-  // Auto-sync every 5 minutes in the background
-  useEffect(() => {
-    const autoSyncInterval = setInterval(() => {
-      // Silently sync all projects in the background
-      syncAllProjects(true); // Pass true to indicate silent sync
-    }, 5 * 60 * 1000); // 5 minutes
-
-    return () => clearInterval(autoSyncInterval);
-  }, [projects]);
-
   const loadData = async () => {
     console.log('🔄 Starting data load from Supabase...');
     setLoading(true);
@@ -642,8 +673,9 @@ EOFSCRIPT`,
       // CRITICAL: Load projects FIRST to set hasLoadedFromSupabase flag
       console.log('📂 Loading projects...');
       const projectsResult = await window.storage.get('projects');
+      let loadedProjects = [];
       if (projectsResult) {
-        const loadedProjects = JSON.parse(projectsResult.value);
+        loadedProjects = JSON.parse(projectsResult.value);
         console.log(`✅ Loaded ${loadedProjects.length} projects from Supabase`);
         setProjects(loadedProjects);
       } else {
@@ -672,13 +704,18 @@ EOFSCRIPT`,
       // Load performance reviews
       const reviewsResult = await window.storage.get('performance-reviews');
       if (reviewsResult) {
-        setPerformanceReviews(JSON.parse(reviewsResult.value));
+        setPerformanceReviews(normalizePerformanceReviews(JSON.parse(reviewsResult.value), loadedProjects));
       }
 
       // Load custom teams
       const teamsResult = await window.storage.get('custom-teams');
       if (teamsResult) {
-        setCustomTeams(JSON.parse(teamsResult.value));
+        const parsedTeams = JSON.parse(teamsResult.value);
+        const sanitizedTeams = sanitizeCustomTeams(parsedTeams);
+        setCustomTeams(sanitizedTeams);
+        if (JSON.stringify(parsedTeams) !== JSON.stringify(sanitizedTeams)) {
+          await window.storage.set('custom-teams', JSON.stringify(sanitizedTeams));
+        }
       }
 
       // Load custom subdivisions
@@ -697,11 +734,6 @@ EOFSCRIPT`,
       // Preload with default checklist from CSV on first run
       const defaultTasks = [{"id":"1000","task":"JPMC Accessibility Design Requirements","team":"Architect","subdivision":"Design","notes":"Architect to Fill out form / AOR ADA Certificate Template","subtasks":[],"createdAt":"2025-12-30T15:26:53.338Z"},{"id":"1001","task":"Complete Project Design Schedule","team":"Architect","subdivision":"Schedule","notes":"Ask architect to provide a complete Design Schedule including meeting reviews","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1002","task":"Building Site Assessment Report","team":"Architect","subdivision":"Design","notes":"Schedule site visit with A&E team","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1003","task":"TV Outlet Heights","team":"Architect","subdivision":"Lesson Learned","notes":"Verify all heights on A&E Plans","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1004","task":"Excelon Static Dissipative Tile / MER","team":"Architect","subdivision":"Design","notes":"Spec for MER room","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1005","task":"Gradient Film Spec","team":"Architect","subdivision":"Design","notes":"Full height gradient film/for Client Centers/Check standards website","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1006","task":"Lactation Room Guidelines","team":"Architect","subdivision":"Design","notes":"Review design guideline website","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1007","task":"LEED Sustainability","team":"Architect","subdivision":"Design","notes":"Check Lease & SQFT","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1008","task":"Pantry Equipment Guidelines & Spec","team":"Architect","subdivision":"Design","notes":"Architect to review design Guideline website","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1009","task":"Professional Photography","team":"Architect","subdivision":"Closeout","notes":"Review if its included in proposal / Standard and up","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1010","task":"Design Guidelines","team":"Architect","subdivision":"Design","notes":"Meeting to confirm Guidelines have been met/Architect to review website each week","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1011","task":"Millwork Cabinet / Restroom & Pantry","team":"Architect","subdivision":"Lesson Learned","notes":"Recommend a panel with hinges and 2 handles for easy removal and access","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1012","task":"AOR ADA Certificate Template","team":"Architect","subdivision":"Design","notes":"Download template from Contract Management site","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1013","task":"Sound Masking","team":"Architect","subdivision":"Design","notes":"Plans by A&E team / Coordinate panel location","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1014","task":"Expeditor Services","team":"Architect","subdivision":"Permitting","notes":"Contract Local Expeditor","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1015","task":"Toilet Seat Height","team":"Architect","subdivision":"Lesson Learned","notes":"Make Toilet seat 18\"-19\"","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1016","task":"50% Coordinated Review Set","team":"Architect","subdivision":"Schedule","notes":"Architect to provide along with design schedule","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1017","task":"70% Issued for Landlord Review Set","team":"Architect","subdivision":"Schedule","notes":"May not be needed if the 50% has enough information","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1018","task":"90% Page Turn","team":"Architect","subdivision":"Schedule","notes":"Have a call with the Team before the page turn to gather all questions and concerns","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1019","task":"Photometrics Plan","team":"Architect","subdivision":"Design","notes":"Architect to provide with 50% Review","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1020","task":"Permit Set Checklist","team":"Architect","subdivision":"Permitting","notes":"Onboard Expeditor once SD are approved","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1021","task":"Iron Mountain Shred Bin","team":"Architect","subdivision":"Coordination","notes":"Coordinate with FM Team / Architect to design space for Bin","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1022","task":"Concept / Test Fit Design","team":"Architect","subdivision":"Design","notes":"30 Day Schedule / Standard Projects","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1023","task":"Schematic Design (SD)","team":"Architect","subdivision":"Design","notes":"4 Week Schedule / Standard Project","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1024","task":"Door Schedule (Assabloy)","team":"Architect","subdivision":"Design","notes":"Schedule call with Architect/Convergint","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1025","task":"Late Discovery of Hidden Conditions","team":"Architect","subdivision":"Lesson Learned","notes":"Uncover unexpected HVAC/Elec conflicts, Structural surprises during construction","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1026","task":"Incomplete or late design coordination","team":"Architect","subdivision":"Lesson Learned","notes":"AV, IT, Security, Signage, Food Service, not engaged before design sign off","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1027","task":"AV Equipment Testing","team":"AV","subdivision":"Execution & Construction","notes":"","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1028","task":"TV Mounts","team":"AV","subdivision":"Design","notes":"AV Team provides all the TV mounts","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1029","task":"TV's","team":"AV","subdivision":"Coordination","notes":"AV to provide TV mounting specs / Budget","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1030","task":"GTI / AV Orders","team":"AV","subdivision":"Coordination","notes":"Check GTI & AV orders early, Miss orders cause delays","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1031","task":"Albireo Proposal","team":"Contractor","subdivision":"Proposal","notes":"Include when the project goes out to GC RFP / Submit to MEP/Commissioning","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1032","task":"Long Lead Item / Purchase order","team":"Contractor","subdivision":"Coordination","notes":"GC to provide list of long lead items along with proof of purchase order","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1033","task":"Suite Keys","team":"Contractor","subdivision":"Handover","notes":"GC to provide Keys to FM team, and building engineer","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1034","task":"Atlantic Custom Woodcraft","team":"Contractor","subdivision":"Lesson Learned","notes":"Did a great job at Sarasota / Millworker","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1035","task":"TV Mounts secured to slab","team":"Contractor","subdivision":"Coordination","notes":"GC to secure TV Bracket to slab","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1036","task":"MER Shell Ready","team":"Contractor","subdivision":"Schedule","notes":"GC to provide date","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1037","task":"MER Room Ready","team":"Contractor","subdivision":"Schedule","notes":"GC to provide date","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1038","task":"MER Production Ready","team":"Contractor","subdivision":"Schedule","notes":"GC to provide date","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1039","task":"Circuit Install","team":"Contractor","subdivision":"Construction","notes":"GC to provide date","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1040","task":"Required Inspections","team":"Contractor","subdivision":"Schedule","notes":"GC to Provide all Inspections required for the project","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1041","task":"Operational Project Complete","team":"Contractor","subdivision":"Closeout","notes":"GC to complete closeout list below","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1042","task":"Is EPO Required by AHJ?","team":"FM Engineering","subdivision":"Coordination","notes":"JPMC Standard is not to have an EPO","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1043","task":"Need to use Daintree Lighting Control","team":"FM Engineering","subdivision":"Design","notes":"Lighting Control System","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1044","task":"TR Rooms / N+1 HVAC Unit","team":"FM Engineering","subdivision":"Design","notes":"TR rooms to have N+1 HVAC unit outside of the room","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1045","task":"IAQ Sensors","team":"FM Engineering","subdivision":"Design","notes":"IAQ Sensors should be JPMC Standard Omni Awair Sensors","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1046","task":"Isolation Valves","team":"FM Engineering","subdivision":"Design","notes":"Supply isolation Valves and sanitary cleanouts for restroom and work cafe","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1047","task":"Pre-Action Sprinkler","team":"FM Engineering","subdivision":"Design","notes":"Technology room sprinkler system should be Pre-Action System","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1048","task":"Leak Detection (Albireo)","team":"FM Engineering","subdivision":"Design","notes":"Add Leak Detection to Albireo Monitoring System","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1049","task":"MER Checklist/Coordination","team":"GTI","subdivision":"Design","notes":"MER TR Standards / MEP Design Guidelines / Commissioning Scope","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1050","task":"MER/TR Combo Rack information","team":"GTI","subdivision":"MER Checklist","notes":"","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1051","task":"MER/TR Combo Structural Cable Plan","team":"GTI","subdivision":"MER Checklist","notes":"","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1052","task":"Service Now for GTI / AV Assignment","team":"GTI","subdivision":"Initiate","notes":"Initiate Service Now Ticket to engage GTI, Security & AV","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1053","task":"UPS Specs","team":"GTI","subdivision":"Design","notes":"","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1054","task":"Order Printers","team":"GTI","subdivision":"Technology Setup","notes":"GTI PM places order for printer with Card Reader","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1055","task":"WAP Location Plan","team":"GTI","subdivision":"Design","notes":"GTI to provide locations / GTI to provide heat map","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1056","task":"UPS Load Study","team":"GTI","subdivision":"Design","notes":"When working inside existing spaces of expansion/Request a load study/Miller Electric","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1057","task":"Lease","team":"Landlord","subdivision":"Initiate","notes":"Provide pre-approved Vendor list/Expiration date","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1058","task":"Rules & Regulations","team":"Landlord","subdivision":"Initiate","notes":"Provide Rules & Reg to Design team","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1059","task":"Low Voltage Plans","team":"Low Voltage","subdivision":"Design","notes":"Review MER/TR Design with A&E + GTI","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1060","task":"MER Mechanical Units","team":"MEP","subdivision":"MER Checklist","notes":"Review Guidelines","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1061","task":"MEP Design Guidelines v1.3","team":"MEP","subdivision":"MER Checklist","notes":"Review all MER and MEP Guidelines","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1062","task":"Leak Detection in Cafe & MER","team":"MEP","subdivision":"Design","notes":"MEP plans to include leak detection","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1063","task":"Security Proposal","team":"Owner","subdivision":"PO","notes":"Security PO to go under GC/ Ask For Design Proposal","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1064","task":"AV Proposal","team":"Owner","subdivision":"PO","notes":"AV PMaas / Design / Equipment Intall / (3) Proposal","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1065","task":"Test-fit","team":"Owner","subdivision":"Design Start","notes":"Provided first from CW/ With Seat counts","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1066","task":"Agenda / Meeting Minutes","team":"Owner","subdivision":"Project Manager","notes":"Weekly Meeting Minutes","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1067","task":"Amenities Information","team":"Owner","subdivision":"Design","notes":"Issue SD package to amenities team for pricing","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1068","task":"Architect Contract","team":"Owner","subdivision":"PO","notes":"Issue A&E PO / AOR Contract Lump sum","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1069","task":"Architect Onboarding Document","team":"Owner","subdivision":"Onboarding","notes":"Presentation Deck, ADA Documents","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1070","task":"AOR ACC & Sharepoint Access","team":"Owner","subdivision":"Onboarding","notes":"Add Team to ACC for access","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1071","task":"Art / Branding Proposal","team":"Owner","subdivision":"PO","notes":"Studio EL / Need Art Placement plan/Ani-Reflection Film on frame","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1072","task":"AV Room by Room with A&E / GTI","team":"Owner","subdivision":"Coordination","notes":"Review with internal team in weekly meeting","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1073","task":"BID Waivers","team":"Owner","subdivision":"Initiate","notes":"Email approved vendors to Mike","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1074","task":"BIM Access","team":"Owner","subdivision":"Initiate","notes":"Is BIM access required?","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1075","task":"Cad Files to GTI / AV","team":"Owner","subdivision":"Coordination","notes":"Upload CAD files to ACC for Team access","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1076","task":"SD Design Package / LOB","team":"Owner","subdivision":"LOB","notes":"Submit SD package with 3D views for LOB approval","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1077","task":"Closeout Checklist","team":"Owner","subdivision":"Closeout","notes":"See List","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1078","task":"Change Management","team":"Owner","subdivision":"Project Manager","notes":"","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1079","task":"Cushman Wakefeild Test-fit Intake","team":"Owner","subdivision":"Initiate","notes":"Intake form provided by PM team","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1080","task":"Change Orders","team":"Owner","subdivision":"Project Manager","notes":"Invoices need vendor email contact in PMWeb","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1081","task":"Due Diligence Report / Lease","team":"Owner","subdivision":"Initiate","notes":"Issue To Lease transaction along with testfit","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1082","task":"Furniture","team":"Owner","subdivision":"PO","notes":"Front office / Client Center / $250 sqft pricing Client centers","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1083","task":"Furniture Storage","team":"Owner","subdivision":"Coordination","notes":"Review with FM / AOR","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1084","task":"GC Lump Sum / GMP","team":"Owner","subdivision":"Bidding","notes":"","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1085","task":"Handover Checklist","team":"Owner","subdivision":"Handover","notes":"Confirm checklist in PMWeb for closeout / Click save after submit","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1086","task":"Letter of Recommendation for AOR & GC","team":"Owner","subdivision":"Initiate","notes":"Get Letter from Past project","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1087","task":"PMWeb Initial Setup","team":"Owner","subdivision":"Initiate","notes":"","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1088","task":"RAID Risk Assumptions Issues Dependencies","team":"Owner","subdivision":"Initiate","notes":"","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1089","task":"Resiliency #4 LVL","team":"Owner","subdivision":"Initiate","notes":"Selected & Submitted to team","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1090","task":"Cost Consultant","team":"Owner","subdivision":"Initiate","notes":"AS if required at project start","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1091","task":"Resiliency #3 LVL","team":"Owner","subdivision":"Initiate","notes":"Selected & Submitted to team / Included in intake form by program team / Client centers","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1092","task":"General Contractor / RFP","team":"Owner","subdivision":"Bidding","notes":"GC / Pre-con GC","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1093","task":"Scheduling Consultant","team":"Owner","subdivision":"Initiate","notes":"","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1094","task":"3rd Party Oversight Consultant","team":"Owner","subdivision":"Initiate","notes":"Ask if this is needed at project start","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1095","task":"Testing & Commissioning","team":"Owner","subdivision":"PO","notes":"RDA is preferred Commissioning engineer $30K / Can add to GC proposal","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1096","task":"Schedule - Microsoft & PMWeb","team":"Owner","subdivision":"Schedule","notes":"","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1097","task":"Scope Requirements & Team List","team":"Owner","subdivision":"Initiate","notes":"","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1098","task":"Signage Information/ Eaglemaster","team":"Owner","subdivision":"PO","notes":"Proposal from Phili  Synco/ Eaglemaster / Judy Dominey JPMC/Could have 2 vendors","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1099","task":"Site Pictures","team":"Owner","subdivision":"Project Manager","notes":"Upload to ACC / PMWEB","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1100","task":"Soft Phone Deployment","team":"Owner","subdivision":"Technology Setup","notes":"Hard Phone Location/Coordinate with Technology team & Furniture","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1101","task":"Identify Project Key Stakeholders","team":"Owner","subdivision":"Initiate","notes":"See Excel list/ See Meeting minutes from past project","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1102","task":"Project Profile","team":"Owner","subdivision":"Initiate","notes":"Set up in PMWeb","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1103","task":"Kick off call with Global Design","team":"Owner","subdivision":"Global Design","notes":"Only for Enhanced Projects","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1104","task":"UPS Technician","team":"Owner","subdivision":"PO","notes":"Need a proposal for UPS server room work 610.337.7650","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1105","task":"Stock up toilet paper & Towels","team":"Owner","subdivision":"Lesson Learned","notes":"Coordinate with FM Team / Add to tracker","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1106","task":"Entry Door Hardware Fully Operational","team":"Owner","subdivision":"Handover","notes":"Confirm door hardware and access control fully operational before handover (no temporary conditions).","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1107","task":"Asbestos Survey","team":"Owner","subdivision":"PO","notes":"APEX Companies Approved in PMWeb/Sara to email PO $3K","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1108","task":"Convergint /Under GC","team":"Owner","subdivision":"PO","notes":"Convegint team damages ceiling tiles after construction is complete/Provides CAD file after PO","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1109","task":"Benchmark Pricing","team":"Owner","subdivision":"Cerp","notes":"Use Benchmark Comparison Tool / Corporate Budget Guidance","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1110","task":"CERP Budget W/Benchmark","team":"Owner","subdivision":"Cerp","notes":"Look at 411 S county for reference","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1111","task":"Governance Approval","team":"Owner","subdivision":"Cerp","notes":"1M goes to Regional / 10M goes to SteerCo","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1112","task":"Project Suite #","team":"Owner","subdivision":"Initiate","notes":"Need to show correct Suite number on Plans","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1113","task":"Hypothetical Space ID Numbers","team":"Owner","subdivision":"Design","notes":"Get cad file / Assess cad portal to upload cad and get numbers","subtasks":[{"id":"1113-0","text":"Cad portal websiteILook up CAD file in cad portal","completed":false}],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1114","task":"Standard Design Playbook","team":"Owner","subdivision":"Onboarding","notes":"This is the workflow for Standard small Projects","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1115","task":"Poor Vendor Payment Terms Alignment","team":"Owner","subdivision":"Lesson Learned","notes":"PMWeb system defaulting to payment terms net 25, net 60 different from contract","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1116","task":"Procurement Strategy","team":"Owner","subdivision":"Initiate","notes":"A&E RFP Submittal / Approval/ Interviews/ Bid Leveling","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1117","task":"Full Funding","team":"Owner","subdivision":"Initiate","notes":"Governance/Regional/Route Budget/A&E Contract PO","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1118","task":"Moving Company","team":"Owner","subdivision":"PO","notes":"Coordinate with FM team","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1119","task":"Security Door to Desk","team":"Security","subdivision":"Design","notes":"","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1120","task":"Tourlocks & Speed Lanes","team":"Security","subdivision":"Design","notes":"","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1121","task":"Security Lead time Dashboard","team":"Security","subdivision":"Coordination","notes":"","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1122","task":"Security Preliminary Drawings","team":"Security","subdivision":"Design","notes":"Needs cad files & SD package","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1123","task":"SPM Submittal","team":"Security","subdivision":"Coordination","notes":"Security Engagement","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1124","task":"Confirm Intercom Location","team":"Security","subdivision":"Coordination","notes":"Confirm Location of Intercom / Wall or Desk mounted","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1125","task":"Security Access Control Permit","team":"Security","subdivision":"Permitting","notes":"Low Voltage/Security permit Will need master permit first","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1126","task":"Schedule Site Assessment Report","team":"Standard Playbook","subdivision":"Initiate","notes":"Schedule Site visit with RDA/Request Proposal","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1127","task":"Review Deign Proposal with Schedule","team":"Standard Playbook","subdivision":"Initiate","notes":"Issue PO to Architect","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1128","task":"Issue Design Standard documents","team":"Standard Playbook","subdivision":"Initiate","notes":"See Documents List","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1129","task":"Onboarding Presentation Deck","team":"Standard Playbook","subdivision":"Initiate","notes":"Issue Key Milestone Dates","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1130","task":"Schedule Site survey","team":"Standard Playbook","subdivision":"Design Start","notes":"2 Weeks to complete","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1131","task":"Schedule 1st Team meeting","team":"Standard Playbook","subdivision":"Design Start","notes":"Schedule 1st Internal team Call","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1132","task":"Design Deliverables","team":"Standard Playbook","subdivision":"Design Start","notes":"See Deliveriable List","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1133","task":"Approve Test-fit","team":"Standard Playbook","subdivision":"Design Start","notes":"Approval to proceed to Schematic Design","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1134","task":"Request Security start preliminary plans","team":"Standard Playbook","subdivision":"Design Start","notes":"Issue PO to Security","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1135","task":"Request GTI provide WAP Plan","team":"Standard Playbook","subdivision":"Design Start","notes":"GTI to provide schedule for WAP Plan","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1136","task":"Low Voltage Team start on TR room design","team":"Standard Playbook","subdivision":"Design Start","notes":"TR/MER Room Design Review","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1137","task":"Request Hypothetical Numbers","team":"Standard Playbook","subdivision":"Design Start","notes":"Request Floor plan numbers","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1138","task":"Request GC RFP Approval","team":"Standard Playbook","subdivision":"Design Start","notes":"Email Mike for GC approval","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1139","task":"Set up GC RFP Package / Dates","team":"Standard Playbook","subdivision":"Design Start","notes":"RFP Dates","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1140","task":"Request Asbestos proposal","team":"Standard Playbook","subdivision":"PO","notes":"Issue PO for Abestos report","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1141","task":"Start SD Package","team":"Standard Playbook","subdivision":"Schematic Design","notes":"Demo/Partition/Power/RCP/Finish Plans","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1142","task":"Design Review meeting","team":"Standard Playbook","subdivision":"Schematic Design","notes":"Call with GTI/Security/AV Room by Room Meeting","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1143","task":"Schematic Design Deliverables","team":"Standard Playbook","subdivision":"Schematic Design","notes":"See SD List","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1144","task":"SD Review meetings","team":"Standard Playbook","subdivision":"Schematic Design","notes":"SD Meeting 1 & 2","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1145","task":"Schematic Design Approval","team":"Standard Playbook","subdivision":"Schematic Design","notes":"Start CD's","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1146","task":"Request AV Proposal","team":"Standard Playbook","subdivision":"PO","notes":"AV Proposal & PO","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1147","task":"Request Security Proposal","team":"Standard Playbook","subdivision":"PO","notes":"Issue Security Design PO","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1148","task":"Request Signage Proposal","team":"Standard Playbook","subdivision":"PO","notes":"Proposal from Eaglemaster","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1149","task":"Request Furniture Proposal","team":"Standard Playbook","subdivision":"Schematic Design","notes":"","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1150","task":"Request Pantry Equipment Proposal","team":"Standard Playbook","subdivision":"Schematic Design","notes":"Send plans with elevations and specs","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1151","task":"Program Confirmed","team":"Standard Playbook","subdivision":"Design Start","notes":"LOB to approve","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"},{"id":"1152","task":"TR/MER Room Approved","team":"Standard Playbook","subdivision":"Design Start","notes":"GTI To approve","subtasks":[],"createdAt":"2025-12-30T15:26:53.339Z"}];
       setMasterTasks(defaultTasks);
-      setProjects([]);
-      setContacts([]);
-      setCustomTeams([]);
-      setCustomSubdivisions([]);
-      setCustomProjectTypes([]);
       // Save default tasks to storage
       try {
         await window.storage.set('master-tasks', JSON.stringify(defaultTasks));
@@ -710,6 +742,62 @@ EOFSCRIPT`,
       }
     }
     setLoading(false);
+  };
+
+  const saveProjects = async (projectsToSave) => {
+    const now = new Date().toISOString();
+    let preparedProjects = projectsToSave;
+    try {
+      const currentMap = new Map(projects.map(project => [project.id, project]));
+      preparedProjects = projectsToSave.map(project => {
+        const current = currentMap.get(project.id);
+        if (!current) {
+          return { ...project, updatedAt: now };
+        }
+        const currentSnapshot = JSON.stringify(current);
+        const nextSnapshot = JSON.stringify(project);
+        if (currentSnapshot !== nextSnapshot) {
+          return { ...project, updatedAt: now };
+        }
+        return project;
+      });
+    } catch (error) {
+      console.warn('Failed to diff projects before save, forcing updatedAt.', error);
+      preparedProjects = projectsToSave.map(project => ({ ...project, updatedAt: now }));
+    }
+
+    const result = await window.storage.set('projects', JSON.stringify(preparedProjects));
+    try {
+      const refreshed = await window.storage.get('projects');
+      if (refreshed) {
+        const loadedProjects = JSON.parse(refreshed.value);
+        setProjects(loadedProjects);
+        if (selectedProject?.id) {
+          const updatedSelected = loadedProjects.find(p => p.id === selectedProject.id);
+          if (updatedSelected) {
+            setSelectedProject(updatedSelected);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Failed to refresh projects after save:', error);
+    }
+    return result;
+  };
+
+  const saveProjectsDebounced = (projectsToSave, delayMs = 400) => {
+    pendingSaveRef.current = projectsToSave;
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+    }
+    saveTimerRef.current = setTimeout(() => {
+      const pending = pendingSaveRef.current;
+      pendingSaveRef.current = null;
+      saveTimerRef.current = null;
+      if (pending) {
+        saveProjects(pending);
+      }
+    }, delayMs);
   };
 
   // Export all data to JSON file
@@ -721,7 +809,7 @@ EOFSCRIPT`,
         projects: projects,
         contacts: contacts,
         masterTasks: masterTasks,
-        allTeams: allTeams
+        allTeams: sanitizeCustomTeams(customTeams)
       };
 
       const dataStr = JSON.stringify(exportData, null, 2);
@@ -767,7 +855,7 @@ EOFSCRIPT`,
       // Import projects
       if (importedData.projects) {
         setProjects(importedData.projects);
-        await window.storage.set('projects', JSON.stringify(importedData.projects));
+        await saveProjects(importedData.projects);
       }
 
       // Import contacts
@@ -782,10 +870,11 @@ EOFSCRIPT`,
         await window.storage.set('master-tasks', JSON.stringify(importedData.masterTasks));
       }
 
-      // Import teams
+      // Import teams (stored as customTeams)
       if (importedData.allTeams) {
-        setAllTeams(importedData.allTeams);
-        await window.storage.set('all-teams', JSON.stringify(importedData.allTeams));
+        const sanitizedTeams = sanitizeCustomTeams(importedData.allTeams);
+        setCustomTeams(sanitizedTeams);
+        await window.storage.set('custom-teams', JSON.stringify(sanitizedTeams));
       }
 
       alert('✅ Data imported successfully! The page will now reload.');
@@ -798,12 +887,14 @@ EOFSCRIPT`,
 
   // Add new team
   const addNewTeam = async () => {
-    if (!newTeamName.trim() || allTeams.includes(newTeamName.trim())) return;
+    const normalizedNewTeam = normalizeName(newTeamName);
+    const teamExists = allTeams.some(team => team.toLowerCase() === normalizedNewTeam.toLowerCase());
+    if (!normalizedNewTeam || teamExists) return;
     
-    const updatedTeams = [...customTeams, newTeamName.trim()];
+    const updatedTeams = sanitizeCustomTeams([...customTeams, normalizedNewTeam]);
     setCustomTeams(updatedTeams);
     await window.storage.set('custom-teams', JSON.stringify(updatedTeams));
-    setNewTaskForm({ ...newTaskForm, team: newTeamName.trim() });
+    setNewTaskForm({ ...newTaskForm, team: normalizedNewTeam });
     setNewTeamName('');
     setShowNewTeamInput(false);
   };
@@ -866,7 +957,7 @@ EOFSCRIPT`,
       
       // Save to storage in background
       await window.storage.set('master-tasks', JSON.stringify(updatedTasks));
-      await window.storage.set('projects', JSON.stringify(updatedProjects));
+      await saveProjects(updatedProjects);
     } catch (error) {
       console.error('Error adding master task:', error);
     }
@@ -902,7 +993,7 @@ EOFSCRIPT`,
       }));
       
       setProjects(updatedProjects);
-      await window.storage.set('projects', JSON.stringify(updatedProjects));
+      await saveProjects(updatedProjects);
     } catch (error) {
       console.error('Error updating task:', error);
     } finally {
@@ -1017,7 +1108,7 @@ EOFSCRIPT`,
       
       // Save to storage
       await window.storage.set('master-tasks', JSON.stringify(updatedTasks));
-      await window.storage.set('projects', JSON.stringify(updatedProjects));
+      await saveProjects(updatedProjects);
 
       alert(`Successfully imported ${newTasks.length} tasks!`);
     } catch (error) {
@@ -1042,7 +1133,7 @@ EOFSCRIPT`,
     }));
     
     setProjects(updatedProjects);
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    saveProjectsDebounced(updatedProjects);
   };
 
   // Create new project
@@ -1084,6 +1175,7 @@ EOFSCRIPT`,
 
     // Default bid schedule phases
     const defaultBidSchedule = [
+      { id: `bid-${Date.now()}-0`, phase: 'Bid Publish Date', date: '', notes: '', createdAt: new Date().toISOString() },
       { id: `bid-${Date.now()}-1`, phase: 'Pre-Bid Walk', date: '', notes: '', createdAt: new Date().toISOString() },
       { id: `bid-${Date.now()}-2`, phase: 'RFI', date: '', notes: '', createdAt: new Date().toISOString() },
       { id: `bid-${Date.now()}-3`, phase: 'RFI Responses Issued', date: '', notes: '', createdAt: new Date().toISOString() },
@@ -1140,7 +1232,7 @@ EOFSCRIPT`,
     // CRITICAL: Save to storage BEFORE updating state
     console.log('💾 Saving to Supabase...');
     try {
-      const saveResult = await window.storage.set('projects', JSON.stringify(updatedProjects));
+      const saveResult = await saveProjects(updatedProjects);
       console.log('✅ Save result:', saveResult);
       
       if (!saveResult) {
@@ -1175,7 +1267,6 @@ EOFSCRIPT`,
     console.log('✅ Save successful, now updating UI...');
     
     // Update state and close form AFTER successful save
-    setProjects(updatedProjects);
     setNewProjectForm({ name: '', projectType: 'Standard', address: '', sqft: '', approvedBudget: '', leaseExpiration: '', logo: '' });
     
     // Reset expanded tasks state so all tasks start collapsed
@@ -1208,7 +1299,7 @@ EOFSCRIPT`,
       setSelectedProject(updatedSelectedProject);
     }
     
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
   };
 
   // Add sub-task to a master task
@@ -1254,7 +1345,7 @@ EOFSCRIPT`,
     
     // Save to storage in background
     await window.storage.set('master-tasks', JSON.stringify(updatedTasks));
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
   };
 
   // Toggle sub-task completion in master
@@ -1291,7 +1382,7 @@ EOFSCRIPT`,
     }));
     
     setProjects(updatedProjects);
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
   };
 
   // Delete sub-task from master
@@ -1324,23 +1415,25 @@ EOFSCRIPT`,
     }));
     
     setProjects(updatedProjects);
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
   };
 
-  // Delete project
+  // Archive project (soft delete)
   const deleteProject = async (projectId) => {
     // Close the confirmation modal immediately
     setProjectToDelete(null);
-    
-    const updatedProjects = projects.filter(p => p.id !== projectId);
+
+    const updatedProjects = projects.map(project =>
+      project.id === projectId ? { ...project, status: 'archived' } : project
+    );
     setProjects(updatedProjects);
-    
+
     if (selectedProject?.id === projectId) {
-      setSelectedProject(null);
+      setSelectedProject({ ...selectedProject, status: 'archived' });
       setView('projects');
     }
-    
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+
+    await saveProjects(updatedProjects);
   };
 
   // Save edited project from modal
@@ -1368,7 +1461,7 @@ EOFSCRIPT`,
       
       // Try storage save
       try {
-        await window.storage.set('projects', JSON.stringify(updatedProjects));
+        await saveProjects(updatedProjects);
         console.log('Project saved to storage successfully');
       } catch (storageError) {
         console.error('Storage save failed:', storageError);
@@ -1498,7 +1591,7 @@ EOFSCRIPT`,
     });
 
     setProjects(updatedProjects);
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
     
     // Only show alert if not silent mode
     if (!silent) {
@@ -1539,7 +1632,7 @@ EOFSCRIPT`,
     }
     
     // Save to storage after UI update
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
   };
 
   // Update schedule item
@@ -1569,7 +1662,7 @@ EOFSCRIPT`,
     setEditingScheduleItem(null);
     
     // Save to storage
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
   };
 
   // Delete schedule item
@@ -1585,7 +1678,15 @@ EOFSCRIPT`,
     });
 
     setProjects(updatedProjects);
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
+    
+    // Update selectedProject if it's the one being modified
+    if (selectedProject?.id === projectId) {
+      const updated = updatedProjects.find(p => p.id === projectId);
+      if (updated) {
+        setSelectedProject(updated);
+      }
+    }
   };
 
   // Toggle schedule item completion
@@ -1612,7 +1713,7 @@ EOFSCRIPT`,
     // Collapse the item after marking complete
     setExpandedScheduleItems(prev => ({ ...prev, [itemId]: false }));
     
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
   };
 
   // Add budget item to project
@@ -1647,7 +1748,7 @@ EOFSCRIPT`,
     }
     
     // Save to storage after UI update
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
   };
 
   // Update budget item
@@ -1676,7 +1777,7 @@ EOFSCRIPT`,
     }
     
     // Save to storage after UI update
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
   };
 
   // Delete budget item
@@ -1692,7 +1793,7 @@ EOFSCRIPT`,
     });
 
     setProjects(updatedProjects);
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
   };
 
   // Calculate total budget
@@ -1757,7 +1858,7 @@ EOFSCRIPT`,
       setSelectedProject(updatedSelectedProject);
     }
     
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
   };
 
   const updateCostSaving = async (projectId) => {
@@ -1776,7 +1877,7 @@ EOFSCRIPT`,
     });
 
     setProjects(updatedProjects);
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
     setEditingCostSaving(null);
     
     if (selectedProject?.id === projectId) {
@@ -1797,7 +1898,7 @@ EOFSCRIPT`,
     });
 
     setProjects(updatedProjects);
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
     
     if (selectedProject?.id === projectId) {
       const updatedSelectedProject = updatedProjects.find(p => p.id === projectId);
@@ -1829,7 +1930,7 @@ EOFSCRIPT`,
     setEditedProject(null);
     
     // Save to storage after state updates
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
   };
 
   // Update project status
@@ -1839,7 +1940,7 @@ EOFSCRIPT`,
     );
 
     setProjects(updatedProjects);
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
     
     // Update selected project if it's the one being changed
     if (selectedProject?.id === projectId) {
@@ -1923,7 +2024,7 @@ EOFSCRIPT`,
       setSelectedProject(updatedSelectedProject);
     }
     
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
   };
 
   // Update submittal
@@ -1943,7 +2044,7 @@ EOFSCRIPT`,
     });
 
     setProjects(updatedProjects);
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
     setEditingSubmittal(null);
     
     if (selectedProject?.id === projectId) {
@@ -1965,7 +2066,7 @@ EOFSCRIPT`,
     });
 
     setProjects(updatedProjects);
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
     
     if (selectedProject?.id === projectId) {
       const updatedSelectedProject = updatedProjects.find(p => p.id === projectId);
@@ -2009,7 +2110,7 @@ EOFSCRIPT`,
       setSelectedProject(updatedSelectedProject);
     }
     
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
   };
 
   // Update RFI
@@ -2029,7 +2130,7 @@ EOFSCRIPT`,
     });
 
     setProjects(updatedProjects);
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
     setEditingRFI(null);
     
     if (selectedProject?.id === projectId) {
@@ -2051,7 +2152,7 @@ EOFSCRIPT`,
     });
 
     setProjects(updatedProjects);
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
     
     if (selectedProject?.id === projectId) {
       const updatedSelectedProject = updatedProjects.find(p => p.id === projectId);
@@ -2096,7 +2197,7 @@ EOFSCRIPT`,
       setSelectedProject(updatedSelectedProject);
     }
     
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
   };
 
   // Update Change Order
@@ -2116,7 +2217,7 @@ EOFSCRIPT`,
     });
 
     setProjects(updatedProjects);
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
     setEditingChangeOrder(null);
     
     if (selectedProject?.id === projectId) {
@@ -2142,7 +2243,7 @@ EOFSCRIPT`,
 
     console.log('Updated projects:', updatedProjects);
     setProjects(updatedProjects);
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
     
     if (selectedProject?.id === projectId) {
       const updatedSelectedProject = updatedProjects.find(p => p.id === projectId);
@@ -2247,7 +2348,7 @@ EOFSCRIPT`,
       (project.bidSchedule || []).forEach(item => {
         if (!item.date) return;
         
-        const daysUntil = Math.ceil((new Date(item.date) - new Date()) / (1000 * 60 * 60 * 24));
+        const daysUntil = Math.ceil((parseLocalDate(item.date) - new Date()) / (1000 * 60 * 60 * 24));
         
         // Only show bid dates in next 30 days
         if (daysUntil >= 0 && daysUntil <= 30) {
@@ -2303,7 +2404,7 @@ EOFSCRIPT`,
       setSelectedProject(updatedSelectedProject);
     }
     
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
   };
 
   // Update Permit Comment
@@ -2323,7 +2424,7 @@ EOFSCRIPT`,
     });
 
     setProjects(updatedProjects);
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
     setEditingPermitComment(null);
     
     if (selectedProject?.id === projectId) {
@@ -2345,7 +2446,7 @@ EOFSCRIPT`,
     });
 
     setProjects(updatedProjects);
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
     
     if (selectedProject?.id === projectId) {
       const updatedSelectedProject = updatedProjects.find(p => p.id === projectId);
@@ -2608,7 +2709,7 @@ EOFSCRIPT`,
         );
         
         setProjects(updatedProjects);
-        await window.storage.set('projects', JSON.stringify(updatedProjects));
+        await saveProjects(updatedProjects);
         
         if (selectedProject?.id === project.id) {
           setSelectedProject({ ...selectedProject, latitude, longitude });
@@ -2623,7 +2724,7 @@ EOFSCRIPT`,
         alert(`✅ Successfully mapped!\n\n${project.name}\nLocation: ${latitude.toFixed(6)}, ${longitude.toFixed(6)}\n\nFound: ${data[0].display_name || 'Location confirmed'}`);
       } else {
         // Show manual entry option
-        const manualEntry = confirm(
+        const manualEntry = window.confirm(
           `❌ Could not automatically geocode:\n"${project.address}"\n\n` +
           `Would you like to enter coordinates manually?\n\n` +
           `Click OK to enter coordinates, or Cancel to try again later.\n\n` +
@@ -2650,7 +2751,7 @@ EOFSCRIPT`,
                 );
                 
                 setProjects(updatedProjects);
-                await window.storage.set('projects', JSON.stringify(updatedProjects));
+                await saveProjects(updatedProjects);
                 
                 if (selectedProject?.id === project.id) {
                   setSelectedProject({ ...selectedProject, latitude, longitude });
@@ -2829,7 +2930,7 @@ EOFSCRIPT`,
       setSelectedProject(updatedSelectedProject);
     }
     
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
   };
 
   const updateMeetingNote = async (projectId) => {
@@ -2855,7 +2956,7 @@ EOFSCRIPT`,
       setSelectedProject(updatedSelectedProject);
     }
     
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
   };
 
   const deleteMeetingNote = async (projectId, itemId) => {
@@ -2870,7 +2971,7 @@ EOFSCRIPT`,
     });
 
     setProjects(updatedProjects);
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
     
     if (selectedProject?.id === projectId) {
       const updatedSelectedProject = updatedProjects.find(p => p.id === projectId);
@@ -2931,7 +3032,7 @@ EOFSCRIPT`,
       setSelectedProject(updatedSelectedProject);
     }
     
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
   };
 
   const deleteFloorPlan = async (projectId, itemId) => {
@@ -2946,7 +3047,7 @@ EOFSCRIPT`,
     });
 
     setProjects(updatedProjects);
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
     
     if (selectedProject?.id === projectId) {
       const updatedSelectedProject = updatedProjects.find(p => p.id === projectId);
@@ -2993,7 +3094,7 @@ EOFSCRIPT`,
       setProjects(updatedProjects);
       
       console.log('About to save to storage...');
-      const saveResult = await window.storage.set('projects', JSON.stringify(updatedProjects));
+      const saveResult = await saveProjects(updatedProjects);
       console.log('Storage save result:', saveResult);
 
       if (selectedProject?.id === projectId) {
@@ -3036,7 +3137,7 @@ EOFSCRIPT`,
       
       // Try storage save
       try {
-        await window.storage.set('projects', JSON.stringify(updatedProjects));
+        await saveProjects(updatedProjects);
         console.log('Storage save successful');
       } catch (storageError) {
         console.error('Storage save failed:', storageError);
@@ -3067,7 +3168,7 @@ EOFSCRIPT`,
     });
 
     setProjects(updatedProjects);
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
 
     if (selectedProject?.id === projectId) {
       const updatedSelectedProject = updatedProjects.find(p => p.id === projectId);
@@ -3111,7 +3212,7 @@ EOFSCRIPT`,
     });
 
     setProjects(updatedProjects);
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
 
     if (selectedProject?.id === projectId) {
       const updatedSelectedProject = updatedProjects.find(p => p.id === projectId);
@@ -3138,7 +3239,7 @@ EOFSCRIPT`,
     });
 
     setProjects(updatedProjects);
-    await window.storage.set('projects', JSON.stringify(updatedProjects));
+    await saveProjects(updatedProjects);
 
     if (selectedProject?.id === projectId) {
       const updatedSelectedProject = updatedProjects.find(p => p.id === projectId);
@@ -3189,56 +3290,189 @@ EOFSCRIPT`,
     setItemToDelete(null);
   };
 
+  const clampReviewMetric = (value, fallback = 0) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.max(0, Math.min(5, parsed));
+  };
+
+  const getReviewAverage = (review) => {
+    if (review?.metrics) {
+      const metrics = review.metrics;
+      return (
+        clampReviewMetric(metrics.quality) +
+        clampReviewMetric(metrics.timeliness) +
+        clampReviewMetric(metrics.communication) +
+        clampReviewMetric(metrics.budgetAdherence) +
+        clampReviewMetric(metrics.safety)
+      ) / 5;
+    }
+    return clampReviewMetric(review?.rating ?? 0);
+  };
+
+  const normalizePerformanceReview = (review, projectList = projects) => {
+    if (!review || typeof review !== 'object') return null;
+
+    const fallbackRating = clampReviewMetric(review.rating ?? review.overallRating ?? 0);
+    const metrics = {
+      quality: clampReviewMetric(review.metrics?.quality, fallbackRating),
+      timeliness: clampReviewMetric(review.metrics?.timeliness, fallbackRating),
+      communication: clampReviewMetric(review.metrics?.communication, fallbackRating),
+      budgetAdherence: clampReviewMetric(review.metrics?.budgetAdherence, fallbackRating),
+      safety: clampReviewMetric(review.metrics?.safety, fallbackRating)
+    };
+
+    let resolvedProjectId = review.projectId || '';
+    let resolvedProjectName = review.projectName || '';
+    if (resolvedProjectId && !resolvedProjectName) {
+      const matchedProject = projectList.find(p => p.id === resolvedProjectId);
+      resolvedProjectName = matchedProject?.name || '';
+    }
+    if (!resolvedProjectId && resolvedProjectName) {
+      const matchedProject = projectList.find(
+        p => p.name?.toLowerCase() === resolvedProjectName.toLowerCase()
+      );
+      resolvedProjectId = matchedProject?.id || '';
+    }
+
+    return {
+      id: review.id ? String(review.id) : Date.now().toString(),
+      contactId: review.contactId ? String(review.contactId) : '',
+      projectId: resolvedProjectId ? String(resolvedProjectId) : '',
+      projectName: resolvedProjectName,
+      date: review.date || new Date().toISOString().split('T')[0],
+      metrics,
+      notes: typeof review.notes === 'string' ? review.notes : '',
+      wouldHireAgain: review.wouldHireAgain !== false,
+      createdAt: review.createdAt || new Date().toISOString()
+    };
+  };
+
+  const normalizePerformanceReviews = (reviews, projectList = projects) => {
+    if (!Array.isArray(reviews)) return [];
+    return reviews
+      .map(review => normalizePerformanceReview(review, projectList))
+      .filter(Boolean);
+  };
+
+  const toStoragePerformanceReview = (review, projectList = projects) => {
+    const normalized = normalizePerformanceReview(review, projectList);
+    if (!normalized) return null;
+
+    return {
+      id: normalized.id,
+      contactId: normalized.contactId,
+      projectName: normalized.projectName || projectList.find(p => p.id === normalized.projectId)?.name || 'Unknown Project',
+      date: normalized.date,
+      rating: getReviewAverage(normalized),
+      createdAt: normalized.createdAt,
+      updatedAt: new Date().toISOString()
+    };
+  };
+
+  const getLatestPerformanceReviews = async (projectList = projects) => {
+    try {
+      const reviewsResult = await window.storage.get('performance-reviews');
+      if (!reviewsResult) return [];
+      return normalizePerformanceReviews(JSON.parse(reviewsResult.value), projectList);
+    } catch (error) {
+      console.error('Failed to load performance reviews:', error);
+      return normalizePerformanceReviews(performanceReviews, projectList);
+    }
+  };
+
+  const savePerformanceReviews = async (reviewsToSave, projectList = projects) => {
+    const normalizedReviews = normalizePerformanceReviews(reviewsToSave, projectList);
+    const storagePayload = normalizedReviews
+      .map(review => toStoragePerformanceReview(review, projectList))
+      .filter(Boolean);
+
+    await window.storage.set('performance-reviews', JSON.stringify(storagePayload));
+    setPerformanceReviews(normalizedReviews);
+    return normalizedReviews;
+  };
+
   // Performance Review Management Functions
   const addPerformanceReview = async () => {
-    if (!newReview.contactId || !newReview.projectId) return;
-    
-    const review = {
-      id: Date.now().toString(),
-      ...newReview,
-      createdAt: new Date().toISOString()
-    };
-    
-    const updatedReviews = [...performanceReviews, review];
-    setPerformanceReviews(updatedReviews);
-    setNewReview({
-      contactId: '',
-      projectId: '',
-      date: new Date().toISOString().split('T')[0],
-      metrics: {
-        quality: 0,
-        timeliness: 0,
-        communication: 0,
-        budgetAdherence: 0,
-        safety: 0
-      },
-      notes: '',
-      wouldHireAgain: true
-    });
-    
-    await window.storage.set('performance-reviews', JSON.stringify(updatedReviews));
+    if (!newReview.contactId || !newReview.projectId) {
+      alert('Please select both a Contact and a Project before adding a review.');
+      return;
+    }
+
+    try {
+      const review = normalizePerformanceReview({
+        id: Date.now().toString(),
+        ...newReview,
+        createdAt: new Date().toISOString()
+      }, projects);
+
+      const latestReviews = await getLatestPerformanceReviews(projects);
+      const updatedReviews = [...latestReviews, review];
+
+      await savePerformanceReviews(updatedReviews, projects);
+      setNewReview({
+        contactId: '',
+        projectId: '',
+        date: new Date().toISOString().split('T')[0],
+        metrics: {
+          quality: 0,
+          timeliness: 0,
+          communication: 0,
+          budgetAdherence: 0,
+          safety: 0
+        },
+        notes: '',
+        wouldHireAgain: true
+      });
+      alert('Performance review saved.');
+    } catch (error) {
+      console.error('Error adding performance review:', error);
+      alert(`Could not save performance review. ${error?.message || 'Please try again.'}`);
+    }
   };
 
   const updatePerformanceReview = async () => {
     if (!editingReview) return;
-    
-    const updatedReviews = performanceReviews.map(review =>
-      review.id === editingReview.id ? editingReview : review
-    );
-    
-    setPerformanceReviews(updatedReviews);
-    setEditingReview(null);
-    await window.storage.set('performance-reviews', JSON.stringify(updatedReviews));
+
+    try {
+      const normalizedEditingReview = normalizePerformanceReview(editingReview, projects);
+      const latestReviews = await getLatestPerformanceReviews(projects);
+      let foundReview = false;
+
+      const updatedReviews = latestReviews.map(review => {
+        if (review.id === normalizedEditingReview.id) {
+          foundReview = true;
+          return normalizedEditingReview;
+        }
+        return review;
+      });
+
+      if (!foundReview) {
+        updatedReviews.push(normalizedEditingReview);
+      }
+
+      await savePerformanceReviews(updatedReviews, projects);
+      setEditingReview(null);
+    } catch (error) {
+      console.error('Error updating performance review:', error);
+      alert(`Could not update performance review. ${error?.message || 'Please try again.'}`);
+    }
   };
 
   const deletePerformanceReview = async (reviewId) => {
-    const updatedReviews = performanceReviews.filter(r => r.id !== reviewId);
-    setPerformanceReviews(updatedReviews);
-    await window.storage.set('performance-reviews', JSON.stringify(updatedReviews));
+    try {
+      const latestReviews = await getLatestPerformanceReviews(projects);
+      const updatedReviews = latestReviews.filter(r => r.id !== reviewId);
+      await savePerformanceReviews(updatedReviews, projects);
+    } catch (error) {
+      console.error('Error deleting performance review:', error);
+      alert(`Could not delete performance review. ${error?.message || 'Please try again.'}`);
+    }
   };
 
   const getContactPerformance = (contactId) => {
-    const contactReviews = performanceReviews.filter(r => r.contactId === contactId);
+    const targetContactId = String(contactId);
+    const contactReviews = performanceReviews.filter(r => String(r.contactId) === targetContactId);
     if (contactReviews.length === 0) return null;
     
     const totalMetrics = contactReviews.reduce((acc, review) => {
@@ -4065,7 +4299,7 @@ EOFSCRIPT`,
                           .map(item => (
                             <div key={item.id}>
                               <span className="font-medium">{item.name}:</span>{' '}
-                              {item.approvedStartDate ? formatDateDisplay(item.approvedStartDate) : 'Not set'}
+                              {item.targetStartDate ? formatDateDisplay(item.targetStartDate) : (item.approvedStartDate ? formatDateDisplay(item.approvedStartDate) : 'Not set')}
                             </div>
                           ))}
                       </div>
@@ -4944,7 +5178,7 @@ EOFSCRIPT`,
                               <div key={review.id} className="bg-slate-800/50 rounded-lg p-4">
                                 <div className="flex items-start justify-between mb-2">
                                   <div>
-                                    <div className="font-semibold">{project?.name || 'Unknown Project'}</div>
+                                    <div className="font-semibold">{project?.name || review.projectName || 'Unknown Project'}</div>
                                     <div className="text-sm text-slate-400">{new Date(review.date).toLocaleDateString()}</div>
                                   </div>
                                   <div className="flex items-center gap-1">
@@ -5759,7 +5993,10 @@ EOFSCRIPT`,
                 <span className="sm:hidden">Active ({selectedProject.tasks.filter(t => !t.completed).length})</span>
               </button>
               <button
-                onClick={() => setProjectTab('completed')}
+                onClick={() => {
+                  setProjectTab('completed');
+                  setExpandedProjectTasks({}); // Reset expansion when switching tabs
+                }}
                 className={`px-2 py-1.5 sm:px-4 sm:py-2 rounded text-sm sm:text-base ${
                   projectTab === 'completed' 
                     ? 'bg-green-600' 
@@ -7078,6 +7315,17 @@ EOFSCRIPT`,
 
               {projectTab === 'gantt' && (
                 <div>
+                  {/* Export Button */}
+                  <button
+                    onClick={() => exportToPDF('gantt', selectedProject)}
+                    className="w-full sm:w-auto mb-4 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 rounded flex items-center justify-center gap-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    Export Gantt to PDF
+                  </button>
+
                   <div className="bg-slate-900 rounded-lg p-4 sm:p-6 border border-slate-800">
                     <h3 className="text-lg font-bold mb-4">Project Gantt Chart</h3>
                     
@@ -8592,7 +8840,7 @@ EOFSCRIPT`,
                     {(() => {
                       // Find Pre-Bid Walk date to use as baseline
                       const preBidWalk = (selectedProject.bidSchedule || []).find(item => item.phase === 'Pre-Bid Walk');
-                      const baselineDate = preBidWalk?.date ? new Date(preBidWalk.date) : null;
+                      const baselineDate = preBidWalk?.date ? parseLocalDate(preBidWalk.date) : null;
                       const today = new Date();
                       today.setHours(0, 0, 0, 0);
 
@@ -8603,7 +8851,7 @@ EOFSCRIPT`,
                         let statusColor = '';
                         
                         if (item.date && baselineDate && item.phase !== 'Pre-Bid Walk') {
-                          const itemDate = new Date(item.date);
+                          const itemDate = parseLocalDate(item.date);
                           daysFromBaseline = Math.round((itemDate - baselineDate) / (1000 * 60 * 60 * 24));
                           
                           // Determine if on schedule
@@ -8689,7 +8937,7 @@ EOFSCRIPT`,
                                   {item.date ? (
                                     <div className="space-y-1">
                                       <p className={`text-sm ${statusColor} font-medium`}>
-                                        {new Date(item.date).toLocaleDateString('en-US', { 
+                                        {parseLocalDate(item.date).toLocaleDateString('en-US', { 
                                           month: 'short', 
                                           day: 'numeric', 
                                           year: 'numeric' 
@@ -8922,10 +9170,23 @@ EOFSCRIPT`,
                         return acc;
                       }, {});
 
-                      // Sort trades alphabetically, but keep Unassigned at the end
+                      // Sort trades to match the teams dropdown order, with Unassigned at the end
                       const sortedTrades = Object.keys(groupedByTrade).sort((a, b) => {
                         if (a === 'Unassigned') return 1;
                         if (b === 'Unassigned') return -1;
+                        
+                        // Get index in allTeams array
+                        const indexA = allTeams.indexOf(a);
+                        const indexB = allTeams.indexOf(b);
+                        
+                        // If both are in the array, sort by their position
+                        if (indexA !== -1 && indexB !== -1) {
+                          return indexA - indexB;
+                        }
+                        // If only one is in the array, prioritize it
+                        if (indexA !== -1) return -1;
+                        if (indexB !== -1) return 1;
+                        // If neither is in the array, sort alphabetically
                         return a.localeCompare(b);
                       });
 
@@ -9062,7 +9323,7 @@ EOFSCRIPT`,
                           );
                           setProjects(updatedProjects);
                           setSelectedProject({ ...selectedProject, warrantyStartDate: e.target.value });
-                          await window.storage.set('projects', JSON.stringify(updatedProjects));
+                          await saveProjects(updatedProjects);
                         }}
                         className="w-full px-4 py-2 bg-slate-800 rounded border border-slate-700 focus:border-blue-500 focus:outline-none"
                       />
@@ -9083,7 +9344,7 @@ EOFSCRIPT`,
                           );
                           setProjects(updatedProjects);
                           setSelectedProject({ ...selectedProject, warrantyEndDate: e.target.value });
-                          await window.storage.set('projects', JSON.stringify(updatedProjects));
+                          await saveProjects(updatedProjects);
                         }}
                         className="w-full px-4 py-2 bg-slate-800 rounded border border-slate-700 focus:border-blue-500 focus:outline-none"
                       />
@@ -9337,17 +9598,17 @@ EOFSCRIPT`,
       {projectToDelete && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-slate-900 rounded-lg p-6 max-w-md w-full border border-slate-800">
-            <h3 className="text-xl font-semibold mb-4">Delete Project?</h3>
+            <h3 className="text-xl font-semibold mb-4">Archive Project?</h3>
             <p className="text-slate-300 mb-6">
-              Are you sure you want to delete "{projects.find(p => p.id === projectToDelete)?.name}"? 
-              This action cannot be undone and will delete all tasks, schedule items, budget, submittals, RFIs, and change orders.
+              Are you sure you want to archive "{projects.find(p => p.id === projectToDelete)?.name}"?
+              You can restore it later from the Archived view.
             </p>
             <div className="flex gap-3">
               <button
                 onClick={() => deleteProject(projectToDelete)}
-                className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 rounded font-medium"
+                className="flex-1 px-4 py-2 bg-yellow-600 hover:bg-yellow-700 rounded font-medium"
               >
-                Delete Project
+                Archive Project
               </button>
               <button
                 onClick={cancelDeleteProject}
